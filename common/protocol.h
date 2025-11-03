@@ -16,7 +16,7 @@ typedef enum {
 typedef enum {
     STATE_INIT,
     STATE_READY,
-    STATTE_PLAYING
+    STATE_PLAYING
 } client_state_t;
 
 typedef enum {

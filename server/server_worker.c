@@ -195,7 +195,7 @@ static void handle_play(session_t *session, rtsp_request_info_t *info) {
         return;
     }
 
-    session->state = STATTE_PLAYING;
+    session->state = STATE_PLAYING;
 
     // Send the reply before starting the thread
     send_rtsp_reply(session, STATUS_OK_200, info->cseq);
@@ -269,7 +269,7 @@ void *server_worker_thread(void *arg) {
     logger_log("closing client connection and exiting thread");
 
     // Signal the RTP thread to stop then wait for it to exit
-    if (session->state == STATTE_PLAYING) {
+    if (session->state == STATE_PLAYING) {
         pthread_mutex_lock(&session->event_mutex);
         session->stop_rtp_thread = 1;
 
