@@ -2,6 +2,7 @@
 #include "server_worker.h"
 
 #include <asm-generic/socket.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 
 int main(int argc, char *argv[]) {
     logger_init(LOG_SRC_SERVER);
+    srand(time(NULL));
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s [port]\n", argv[0]);
