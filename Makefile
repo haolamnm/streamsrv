@@ -6,9 +6,9 @@ COMMON_SRCS = $(wildcard common/*.c)
 SERVER_SRCS = $(wildcard server/*.c)
 CLIENT_SRCS = $(wildcard client/*.c)
 
-COMMON_OBJS = $(patsubst common/%.c, obj/%.o, $(COMMON_SRCS))
-SERVER_OBJS = $(patsubst server/%.c, obj/%.o, $(SERVER_SRCS))
-CLIENT_OBJS = $(patsubst client/%.c, obj/%.o, $(CLIENT_SRCS))
+COMMON_OBJS = $(patsubst common/%.c, obj/common/%.o, $(COMMON_SRCS))
+SERVER_OBJS = $(patsubst server/%.c, obj/server/%.o, $(SERVER_SRCS))
+CLIENT_OBJS = $(patsubst client/%.c, obj/client/%.o, $(CLIENT_SRCS))
 
 SERVER_BIN = bin/server
 CLIENT_BIN = bin/client
@@ -23,20 +23,20 @@ $(CLIENT_BIN): $(COMMON_OBJS) $(CLIENT_OBJS)
 	@echo "Linking client..."
 	$(CC) $(LDFLAGS) $^ -o $@
 
-obj/%.o: common/%.c
+obj/common/%.o: common/%.c
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -c $< -o $@
 
-obj/%.o: server/%.c
+obj/server/%.o: server/%.c
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -Icommon -c $< -o $@
 
-obj/%.o: client/%.c
+obj/client/%.o: client/%.c
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -Icommon -c $< -o $@
 
 clean:
 	@echo "Cleaning up..."
-	rm -f obj/*.o $(SERVER_BIN) $(CLIENT_BIN)
+	rm -rf obj/*.o $(SERVER_BIN) $(CLIENT_BIN)
 
 .PHONY: all clean
