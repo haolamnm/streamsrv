@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g -pthread
+CFLAGS = -Wall -Wextra -std=c23 -g -pthread
 LDFLAGS = -pthread
 
 COMMON_SRCS = $(wildcard common/*.c)
