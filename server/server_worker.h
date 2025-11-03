@@ -5,6 +5,7 @@
 #include "video_stream.h"
 
 #include <netinet/in.h>
+#include <pthread.h>
 
 typedef struct {
     // Client's RTSP (TCP) socket
@@ -21,6 +22,17 @@ typedef struct {
     // Video stream section
     video_stream_t video_stream;
     char filename[256];
+
+    // RTP (UDP) socket for sending data
+    int rtp_socket_fd;
+
+    // Thread ID for RTP sending thread
+    pthread_t rtp_thread_id;
+
+    // Synchronization for RTP thread
+    pthread_mutex_t event_mutex;
+    pthread_cond_t event_cond;
+    int stop_rtp_thread; // 0 = play, 1 = stop (for PAUSE/TEARDOWN)
 } session_t;
 
 void *server_worker_thread(void *arg);
