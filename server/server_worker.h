@@ -2,6 +2,7 @@
 #define SERVER_WORKER_H
 
 #include "../common/protocol.h"
+#include "video_stream.h"
 
 #include <netinet/in.h>
 
@@ -16,6 +17,10 @@ typedef struct {
 
     // Client's RTP (UDP) port
     int rtp_port;
+
+    // Video stream section
+    video_stream_t video_stream;
+    char filename[256];
 } session_t;
 
 void *server_worker_thread(void *arg);
