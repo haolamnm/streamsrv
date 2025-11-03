@@ -1,5 +1,7 @@
 #include "../common/logger.h"
 
+#include <stdlib.h>
+
 int main(int argc, char *argv[]) {
     logger_init(LOG_SRC_CLIENT);
     logger_log("client starting up");
@@ -7,5 +9,5 @@ int main(int argc, char *argv[]) {
     // TODO: Implement connection to the server
 
     logger_log("client shutting down");
-    return 0;
+    return EXIT_SUCCESS;
 }
