@@ -21,8 +21,8 @@ typedef enum {
 
 typedef enum {
     STATUS_OK_200 = 0,
-    STATUS_FILE_NOT_FOUND = 1,
-    STATUS_CON_ERR_500 = 2
+    STATUS_NOT_FOUND_404 = 1,
+    STATUS_SRV_ERR_500 = 2
 } rtsp_status_t;
 
 #endif // PROTOCOL_H
