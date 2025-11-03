@@ -140,6 +140,27 @@ static void send_rtsp_reply(session_t *session, rtsp_status_t status, int cseq) 
     }
 }
 
+static void stop_rtp_streaming(session_t *session) {
+    if (session->state != STATE_PLAYING) {
+        return;
+    }
+    logger_log("stop rtp streaming");
+
+    pthread_mutex_lock(&session->event_mutex);
+    session->stop_rtp_thread = 1;
+    pthread_cond_signal(&session->event_cond);
+    pthread_mutex_unlock(&session->event_mutex);
+
+    logger_log("waiting for rtp thread to join...");
+    pthread_join(session->rtp_thread_id, NULL);
+    logger_log("rtp thread joined");
+
+    if (session->rtp_socket_fd > 0) {
+        close(session->rtp_socket_fd);
+        session->rtp_socket_fd = -1;
+    }
+}
+
 static void handle_setup(session_t *session, rtsp_request_info_t *info) {
     if (session->state != STATE_INIT) {
         logger_log("received setup in non-init state");
@@ -163,8 +184,7 @@ static void handle_setup(session_t *session, rtsp_request_info_t *info) {
 
     // Generate a random session ID for the client
     if (session->session_id == 0) {
-        // session->session_id = (rand() % 899999) + 100000;
-        session->session_id = 0;
+        session->session_id = (rand() % 899999) + 100000;
     }
 
     // Initialize things
@@ -210,7 +230,28 @@ static void handle_play(session_t *session, rtsp_request_info_t *info) {
     }
 }
 
-static void process_rtsp_request(session_t *session, char *request) {
+static void handle_pause(session_t *session, rtsp_request_info_t *info) {
+    if (session->state != STATE_PLAYING) {
+        logger_log("received pause in non-playing state");
+        return;
+    }
+
+    logger_log("processing pause");
+
+    stop_rtp_streaming(session);
+    session->state = STATE_READY;
+    send_rtsp_reply(session, STATUS_OK_200, info->cseq);
+}
+
+static void handle_teardown(session_t *session, rtsp_request_info_t *info) {
+    logger_log("processing teardown");
+
+    stop_rtp_streaming(session);
+    send_rtsp_reply(session, STATUS_OK_200, info->cseq);
+    session->state = STATE_INIT;
+}
+
+static int process_rtsp_request(session_t *session, char *request) {
     rtsp_request_info_t info;
     rtsp_parse_request(request, &info);
 
@@ -219,7 +260,7 @@ static void process_rtsp_request(session_t *session, char *request) {
         logger_log("session id mismatch. expected %d, got %d",
             session->session_id, info.session_id
         );
-        return;
+        return 0; // continue
     }
 
     // Route the request based on the parsed method
@@ -231,18 +272,16 @@ static void process_rtsp_request(session_t *session, char *request) {
         handle_play(session, &info);
         break;
     case METHOD_PAUSE:
-        logger_log("pause request received (not implemented)");
-        // TODO
+        handle_pause(session, &info);
         break;
     case METHOD_TEARDOWN:
-        logger_log("teardown request received (not implemented");
-        // TODO
-        break;
+        handle_teardown(session, &info);
+        return 1; // signal to exit loop
     default:
         logger_log("received unknown or malformed request");
-        // TODO
         break;
     }
+    return 0; // continue
 }
 
 void *server_worker_thread(void *arg) {
@@ -263,25 +302,18 @@ void *server_worker_thread(void *arg) {
         }
         buffer[bytes_read] = '\0';
         logger_log("received data:\n%s", buffer);
-        process_rtsp_request(session, buffer);
+
+        int teardown_signal = process_rtsp_request(session, buffer);
+        if (teardown_signal) {
+            logger_log("received teardown request");
+            break;
+        }
     }
 
     logger_log("closing client connection and exiting thread");
 
-    // Signal the RTP thread to stop then wait for it to exit
-    if (session->state == STATE_PLAYING) {
-        pthread_mutex_lock(&session->event_mutex);
-        session->stop_rtp_thread = 1;
-
-        // Wake it up if it is in cond_timedwait
-        pthread_cond_signal(&session->event_cond);
-        pthread_mutex_unlock(&session->event_mutex);
-
-        // Wait for RTP thread to finish
-        logger_log("waiting for rtp thread to join...");
-        pthread_join(session->rtp_thread_id, NULL);
-        logger_log("rtp thread joined");
-    }
+    // Stop video streaming
+    stop_rtp_streaming(session);
 
     // Clean up resources
     pthread_mutex_destroy(&session->event_mutex);
