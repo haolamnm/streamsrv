@@ -1,0 +1,11 @@
+#include "../common/logger.h"
+
+int main(int argc, char *argv[]) {
+    logger_init(LOG_SRC_CLIENT);
+    logger_log("client starting up");
+
+    // TODO: Implement connection to the server
+
+    logger_log("client shutting down");
+    return 0;
+}
