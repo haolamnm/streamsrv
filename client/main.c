@@ -1,5 +1,6 @@
 #include "../common/logger.h"
 #include "rtsp_client.h"
+#include "client_ui.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,31 +24,27 @@ int main(int argc, char *argv[]) {
     rtsp_client_t client;
     memset(&client, 0, sizeof(rtsp_client_t));
 
-    // Connect
-    if (rtsp_client_connect(&client, server_ip, server_port) != 0) {
-        logger_log("failed to connect to server");
-        return EXIT_FAILURE;
-    }
+    client_ui_t ui;
+    memset(&ui, 0, sizeof(client_ui_t));
 
-    // Send SETUP
-    if (rtsp_client_send_setup(&client, video_file, rtp_port) != 0) {
-        logger_log("failed to send setup request");
-        rtsp_client_disconnect(&client);
-        return EXIT_FAILURE;
-    }
+    // Pass the un-connected client struct to the UI
+    // The UI will be responsible for triggering the connection
+    // when the user clicks "SETUP"
+    client_ui_init(&ui, &client);
 
-    // Wait for SETUP reply
-    if (rtsp_client_receive_reply(&client) != STATUS_OK_200) {
-        logger_log("server did not accept setup request");
-        rtsp_client_disconnect(&client);
-        return 1;
-    }
+    // We will store the command line args in the client struct
+    // so the UI can use them when SETUP is clicked
+    // (We need to add these fields to rtsp_client_t)
+    // For now, this is a placeholder.
 
-    logger_log("setup done for session id: %d", client.session_id);
+    logger_log("running ui loop...");
+    client_ui_run(&ui); // blocks until the window is closed
 
-    // TODO: Implement UI
+    logger_log("ui loop exited, cleaning up");
+    client_ui_cleanup(&ui);
 
-    rtsp_client_disconnect(&client);
+    // We should also disconnect if we were connected
+    // rtsp_client_disconnect(&client); // We'll add this later
 
     logger_log("client shutting down");
     return EXIT_SUCCESS;

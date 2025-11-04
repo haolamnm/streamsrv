@@ -1,6 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c23 -g -pthread
 LDFLAGS = -pthread
+RAYLIB_LIBS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 
 COMMON_SRCS = $(wildcard common/*.c)
 SERVER_SRCS = $(wildcard server/*.c)
@@ -21,7 +22,7 @@ $(SERVER_BIN): $(COMMON_OBJS) $(SERVER_OBJS)
 
 $(CLIENT_BIN): $(COMMON_OBJS) $(CLIENT_OBJS)
 	@echo "Linking client..."
-	$(CC) $(LDFLAGS) $^ -o $@
+	$(CC) $(LDFLAGS) $^ -o $@ $(RAYLIB_LIBS)
 
 obj/common/%.o: common/%.c
 	@echo "Compiling $<..."
