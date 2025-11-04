@@ -1,9 +1,11 @@
 #include "../common/logger.h"
 #include "rtsp_client.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -13,7 +15,7 @@
 #define RECV_BUFFER_SIZE 1024
 #define SEND_BUFFER_SIZE 1024
 
-static rtsp_status_t parse_rtsp_reply(rtsp_client_t *client, const char *reply_str) {
+static rtsp_status_t process_rtsp_reply(rtsp_client_t *client, const char *reply_str) {
     logger_log("recevied reply:\n%s", reply_str);
 
     char *buffer = strdup(reply_str);
@@ -46,37 +48,71 @@ static rtsp_status_t parse_rtsp_reply(rtsp_client_t *client, const char *reply_s
 
     free(buffer);
 
-    // Validate the CSeq to ensure this reply matches the most recent request
-    if (cseq != client->rtsp_seq) {
-        logger_log("cseq mismatch. expected %d, got %d", client->rtsp_seq, cseq);
-        return STATUS_SRV_ERR_500;
-    }
-
     // Check status code
     if (status_code == 200) {
-        if (client->session_id == 0) {
-            client->session_id = session_id;
-        }
+        pthread_mutex_lock(&client->state_mutex);
 
-        if (client->session_id != session_id) {
-            logger_log("session id mismatch. expected %d, got %d",
-                client->session_id, session_id
-            );
-            return STATUS_SRV_ERR_500;
+        if (client->state == STATE_INIT) {
+            client->session_id = session_id;
+            client->state = STATE_READY;
+            logger_log("state changed to READY from INIT");
+        } else if (client->state == STATE_READY) {
+            client->state = STATE_PLAYING;
+            logger_log("state changed to PLAYING from READY");
+        } else if (client->state == STATE_PLAYING) {
+            client->state = STATE_READY;
+            logger_log("state changed to READY from PAUSE");
         }
+        pthread_mutex_unlock(&client->state_mutex);
         return STATUS_OK_200;
-    } else if (status_code == 404) {
-        return STATUS_NOT_FOUND_404;
     } else {
+        logger_log("server returned error %d", status_code);
         return STATUS_SRV_ERR_500;
     }
 }
 
-int rtsp_client_connect(rtsp_client_t *client, const char *server_ip, int server_port) {
+static void *rtsp_reply_thread(void* arg) {
+    rtsp_client_t *client = (rtsp_client_t*)arg;
+    char recv_buffer[RECV_BUFFER_SIZE];
+
+    logger_log("rtsp reply thread started");
+
+    while (client->stop_reply_thread == 0) {
+        ssize_t bytes_read = read(client->rtsp_socket_fd, recv_buffer, RECV_BUFFER_SIZE - 1);
+
+        if (bytes_read <= 0) {
+            if (client->stop_reply_thread != 0) {
+                break;
+            }
+            logger_log("server disconnected or read error");
+            break;
+        }
+        recv_buffer[bytes_read] = '\0';
+        process_rtsp_reply(client, recv_buffer);
+    }
+
+    logger_log("rtsp reply thread stopping");
+    return NULL;
+}
+
+int rtsp_client_connect(
+    rtsp_client_t *client,
+    const char *server_ip,
+    int server_port,
+    const char *filename,
+    int rtp_port
+) {
+    memset(client, 0, sizeof(rtsp_client_t));
     client->rtsp_socket_fd = -1;
     client->rtsp_seq = 0;
     client->session_id = 0;
     client->state = STATE_INIT;
+    client->stop_reply_thread = 1;
+    pthread_mutex_init(&client->state_mutex, NULL);
+
+    // Store args for SETUP request
+    strncpy(client->video_file, filename, sizeof(client->video_file) - 1);
+    client->rtp_port = rtp_port;
 
     client->rtsp_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (client->rtsp_socket_fd < 0) {
@@ -107,6 +143,15 @@ int rtsp_client_connect(rtsp_client_t *client, const char *server_ip, int server
     return 0;
 }
 
+int rtsp_client_start_reply_listener(rtsp_client_t *client) {
+    client->stop_reply_thread = 0;
+    if (pthread_create(&client->reply_thread_id, NULL, rtsp_reply_thread, (void *)client) != 0) {
+        logger_log("error creating rtsp reply thread");
+        return -1;
+    }
+    return 0;
+}
+
 static int send_rtsp_request(rtsp_client_t *client, const char *request_str) {
     logger_log("sending request:\n%s", request_str);
 
@@ -117,44 +162,60 @@ static int send_rtsp_request(rtsp_client_t *client, const char *request_str) {
     return 0;
 }
 
-int rtsp_client_send_setup(rtsp_client_t *client, const char *filename, int rtp_port) {
-    if (client->state != STATE_INIT) {
-        logger_log("setup already sent");
-        return -1;
-    }
-
+int rtsp_client_send_setup(rtsp_client_t *client) {
     char send_buffer[SEND_BUFFER_SIZE];
     client->rtsp_seq++;
 
     sprintf(send_buffer, "SETUP %s %s\r\nCSeq: %d\r\nTransport: RTP/UDP;client_port=%d\r\n\r\n",
-        filename, RTSP_VERSION, client->rtsp_seq, rtp_port
+        client->video_file, RTSP_VERSION, client->rtsp_seq, client->rtp_port
     );
     return send_rtsp_request(client, send_buffer);
 }
 
-rtsp_status_t rtsp_client_receive_reply(rtsp_client_t *client) {
-    char recv_buffer[RECV_BUFFER_SIZE];
+int rtsp_client_send_play(rtsp_client_t *client) {
+    char send_buffer[SEND_BUFFER_SIZE];
+    client->rtsp_seq++;
 
-    // Blocking here, waiting for server reply
-    ssize_t bytes_read = read(client->rtsp_socket_fd, recv_buffer, RECV_BUFFER_SIZE - 1);
+    sprintf(send_buffer, "PLAY %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
+            client->video_file, RTSP_VERSION, client->rtsp_seq, client->session_id);
 
-    if (bytes_read <= 0) {
-        logger_log("server disconnected or read error");
-        return STATUS_SRV_ERR_500;
-    }
-    recv_buffer[bytes_read] = '\0';
+    return send_rtsp_request(client, send_buffer);
+}
 
-    rtsp_status_t status = parse_rtsp_reply(client, recv_buffer);
+int rtsp_client_send_pause(rtsp_client_t *client) {
+    char send_buffer[SEND_BUFFER_SIZE];
+    client->rtsp_seq++;
 
-    if (status == STATUS_OK_200 && client->state == STATE_INIT) {
-        client->state = STATE_READY;
-    }
-    return status;
+    sprintf(send_buffer, "PAUSE %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
+            client->video_file, RTSP_VERSION, client->rtsp_seq, client->session_id);
+
+    return send_rtsp_request(client, send_buffer);
+}
+
+int rtsp_client_send_teardown(rtsp_client_t *client) {
+    char send_buffer[SEND_BUFFER_SIZE];
+    client->rtsp_seq++;
+
+    sprintf(send_buffer, "TEARDOWN %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
+            client->video_file, RTSP_VERSION, client->rtsp_seq, client->session_id);
+
+    return send_rtsp_request(client, send_buffer);
 }
 
 void rtsp_client_disconnect(rtsp_client_t *client) {
-    if (client->rtsp_socket_fd > 0) {
-        close(client->rtsp_socket_fd);
+    logger_log("disconnecting...");
+
+    if (client->stop_reply_thread == 0) {
+        client->stop_reply_thread = 1;
+        // Close the socket, which will unblock the read()  in the reply thread
+        // causing it to exit
+        if (client->rtsp_socket_fd > 0) {
+            close(client->rtsp_socket_fd);
+        }
+        pthread_join(client->reply_thread_id, NULL);
+        logger_log("rtsp reply thread joined");
     }
+    pthread_mutex_destroy(&client->state_mutex);
+
     logger_log("disconnected from server");
 }
