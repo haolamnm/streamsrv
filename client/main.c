@@ -1,7 +1,9 @@
 #include "../common/logger.h"
+#include "rtp_client.h"
 #include "rtsp_client.h"
 #include "client_ui.h"
 
+#include <raylib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,27 +26,23 @@ int main(int argc, char *argv[]) {
     rtsp_client_t client;
     memset(&client, 0, sizeof(rtsp_client_t));
 
+    rtp_client_t rtp;
+    memset(&rtp, 0, sizeof(rtp_client_t));
+
     client_ui_t ui;
     memset(&ui, 0, sizeof(client_ui_t));
 
-    // Pass the un-connected client struct to the UI
-    // The UI will be responsible for triggering the connection
-    // when the user clicks "SETUP"
-    client_ui_init(&ui, &client);
+    SetTraceLogLevel(LOG_ERROR);
 
-    // We will store the command line args in the client struct
-    // so the UI can use them when SETUP is clicked
-    // (We need to add these fields to rtsp_client_t)
-    // For now, this is a placeholder.
+    // Pass the un-connected client struct to the UI
+    // The UI will be responsible for triggering the connection when the user clicks "SETUP"
+    client_ui_init(&ui, &client, &rtp, server_ip, server_port, rtp_port, video_file);
 
     logger_log("running ui loop...");
     client_ui_run(&ui); // blocks until the window is closed
 
     logger_log("ui loop exited, cleaning up");
     client_ui_cleanup(&ui);
-
-    // We should also disconnect if we were connected
-    // rtsp_client_disconnect(&client); // We'll add this later
 
     logger_log("client shutting down");
     return EXIT_SUCCESS;
