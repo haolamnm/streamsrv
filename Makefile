@@ -38,6 +38,6 @@ obj/client/%.o: client/%.c
 
 clean:
 	@echo "Cleaning up..."
-	rm -rf obj/*.o $(SERVER_BIN) $(CLIENT_BIN)
+	rm -rf obj/*/*.o $(SERVER_BIN) $(CLIENT_BIN)
 
 .PHONY: all clean
