@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c23 -g -pthread
+CFLAGS = -Wall -Wextra -std=c2x -g -pthread
 LDFLAGS = -pthread
 RAYLIB_LIBS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 
