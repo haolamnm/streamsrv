@@ -25,6 +25,7 @@ int main(int argc, char *argv[]) {
 
     rtsp_client_t client;
     memset(&client, 0, sizeof(rtsp_client_t));
+    pthread_mutex_init(&client.state_mutex, NULL);
 
     rtp_client_t rtp;
     memset(&rtp, 0, sizeof(rtp_client_t));

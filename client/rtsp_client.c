@@ -108,7 +108,6 @@ int rtsp_client_connect(
     client->session_id = 0;
     client->state = STATE_INIT;
     client->stop_reply_thread = 1;
-    pthread_mutex_init(&client->state_mutex, NULL);
 
     // Store args for SETUP request
     strncpy(client->video_file, filename, sizeof(client->video_file) - 1);
