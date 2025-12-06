@@ -37,7 +37,7 @@ static void DrawPauseIcon(float cx, float cy, float size, Color color) {
     float barWidth = size * 0.25f;
     float barHeight = size * 0.7f;
     float gap = size * 0.15f;
-    
+
     DrawRectangleRounded(
         (Rectangle){ cx - gap - barWidth, cy - barHeight / 2, barWidth, barHeight },
         0.2f, 4, color
@@ -106,7 +106,7 @@ void client_ui_init(
     ui->elapsed_time = 0;
     ui->timer_running = false;
     ui->last_frame_time = 0;
-    
+
     // Statistics initialization
     memset(&ui->last_stats, 0, sizeof(rtp_stats_t));
     ui->last_buffer_level = 0;
@@ -125,7 +125,7 @@ void client_ui_init(
 
     ui->video_texture = LoadRenderTexture(ui->video_width, ui->video_height);
     ui->frame_data_buffer = (unsigned char *)malloc(FRAME_BUFFER_SIZE);
-    
+
     // Clear video texture to black initially
     BeginTextureMode(ui->video_texture);
     ClearBackground(BLACK);
@@ -150,14 +150,14 @@ static void client_ui_update_video(client_ui_t *ui) {
 
                 // Resize window to match video
                 SetWindowSize(ui->screen_width, ui->screen_height);
-                
+
                 // Recreate video texture with correct size
                 UnloadRenderTexture(ui->video_texture);
                 ui->video_texture = LoadRenderTexture(ui->video_width, ui->video_height);
-                
+
                 // Update layout
                 client_ui_update_layout(ui);
-                
+
                 logger_log("video resolution detected: %dx%d", img.width, img.height);
             }
 
@@ -191,7 +191,7 @@ static void client_ui_update_logic(client_ui_t *ui) {
     if (ui->timer_running && current_state == STATE_PLAYING) {
         ui->elapsed_time = GetTime() - ui->play_start_time;
     }
-    
+
     // Update statistics periodically
     if (current_state != STATE_INIT) {
         rtp_client_get_stats(ui->rtp, &ui->last_stats);
@@ -234,9 +234,9 @@ static void client_ui_update_logic(client_ui_t *ui) {
     if (current_state == STATE_PLAYING) {
         // Only update video if not buffering
         if (!rtp_client_is_buffering(ui->rtp)) {
-            // Throttle to ~20 FPS (50ms per frame) to match server's send rate
+            // Throttle to 30 FPS (33ms per frame) - matches server send rate
             double now = GetTime();
-            if (now - ui->last_frame_time >= 0.050) {  // 50ms = 20 FPS
+            if (now - ui->last_frame_time >= 0.033) {  // 33ms = 30 FPS
                 client_ui_update_video(ui);
                 ui->last_frame_time = now;
             }
@@ -261,14 +261,14 @@ static void client_ui_draw(client_ui_t *ui) {
 
     // Draw timer bar
     DrawRectangleRec(ui->timer_rect, UI_TIMER_COLOR);
-    
+
     // Format and draw timer
     int total_seconds = (int)ui->elapsed_time;
     int minutes = total_seconds / 60;
     int seconds = total_seconds % 60;
     char timer_text[16];
     sprintf(timer_text, "%02d:%02d", minutes, seconds);
-    
+
     int timer_font_size = 20;
     int timer_text_width = MeasureText(timer_text, timer_font_size);
     DrawText(timer_text,
@@ -280,7 +280,7 @@ static void client_ui_draw(client_ui_t *ui) {
     // Draw status indicator on the left of timer
     const char *status_text = "DISCONNECTED";
     Color status_color = UI_TEXT_DIM_COLOR;
-    
+
     if (current_state == STATE_READY) {
         status_text = "READY";
         status_color = UI_WARNING_COLOR;
@@ -294,41 +294,41 @@ static void client_ui_draw(client_ui_t *ui) {
             status_color = UI_SUCCESS_COLOR;
         }
     }
-    
+
     DrawText(status_text, 15, ui->timer_rect.y + (TIMER_HEIGHT - 14) / 2, 14, status_color);
-    
+
     // Draw stats bar
     DrawRectangleRec(ui->stats_rect, UI_STATS_COLOR);
-    
+
     if (current_state != STATE_INIT) {
         // Draw buffer level bar
         float bar_width = 80.0f;
         float bar_height = 10.0f;
         float bar_x = 10.0f;
         float bar_y = ui->stats_rect.y + (STATS_HEIGHT - bar_height) / 2;
-        
+
         // Background
         DrawRectangle(bar_x, bar_y, bar_width, bar_height, UI_DISABLED_COLOR);
-        
+
         // Fill based on buffer level
         float fill_width = (bar_width * ui->last_buffer_level) / 100.0f;
-        Color fill_color = ui->last_buffer_level > 50 ? UI_SUCCESS_COLOR : 
+        Color fill_color = ui->last_buffer_level > 50 ? UI_SUCCESS_COLOR :
                           (ui->last_buffer_level > 20 ? UI_WARNING_COLOR : UI_DANGER_COLOR);
         DrawRectangle(bar_x, bar_y, fill_width, bar_height, fill_color);
-        
+
         // Buffer label
         char buf_text[32];
         sprintf(buf_text, "BUF: %d%%", ui->last_buffer_level);
         DrawText(buf_text, bar_x + bar_width + 8, ui->stats_rect.y + (STATS_HEIGHT - 12) / 2, 12, UI_TEXT_DIM_COLOR);
-        
+
         // Packet stats
         char stats_text[64];
-        sprintf(stats_text, "Pkts: %u  Lost: %u  Frames: %u", 
+        sprintf(stats_text, "Pkts: %u  Lost: %u  Frames: %u",
             ui->last_stats.packets_received,
             ui->last_stats.packets_lost,
             ui->last_stats.frames_received);
         int stats_width = MeasureText(stats_text, 12);
-        DrawText(stats_text, ui->screen_width - stats_width - 10, 
+        DrawText(stats_text, ui->screen_width - stats_width - 10,
             ui->stats_rect.y + (STATS_HEIGHT - 12) / 2, 12, UI_TEXT_DIM_COLOR);
     }
 
@@ -337,13 +337,13 @@ static void client_ui_draw(client_ui_t *ui) {
 
     // Draw buttons
     float icon_size = 30.0f;
-    
+
     // Connect button
     bool connect_enabled = (current_state == STATE_INIT);
     bool connect_hovered = IsMouseOver(ui->connect_btn_rect) && connect_enabled;
     Color connect_color = connect_enabled ? UI_ACCENT_COLOR : UI_DISABLED_COLOR;
     Color connect_hover = UI_ACCENT_HOVER;
-    
+
     DrawRoundedButton(ui->connect_btn_rect, connect_color, connect_hover, connect_enabled, connect_hovered);
     DrawConnectIcon(
         ui->connect_btn_rect.x + ui->connect_btn_rect.width / 2,
@@ -356,13 +356,13 @@ static void client_ui_draw(client_ui_t *ui) {
     bool playpause_enabled = (current_state == STATE_READY || current_state == STATE_PLAYING);
     bool playpause_hovered = IsMouseOver(ui->playpause_btn_rect) && playpause_enabled;
     Color playpause_color = playpause_enabled ? UI_ACCENT_COLOR : UI_DISABLED_COLOR;
-    
+
     DrawRoundedButton(ui->playpause_btn_rect, playpause_color, UI_ACCENT_HOVER, playpause_enabled, playpause_hovered);
-    
+
     float pp_cx = ui->playpause_btn_rect.x + ui->playpause_btn_rect.width / 2;
     float pp_cy = ui->playpause_btn_rect.y + ui->playpause_btn_rect.height / 2;
     Color pp_icon_color = playpause_enabled ? UI_TEXT_COLOR : UI_TEXT_DIM_COLOR;
-    
+
     if (current_state == STATE_PLAYING) {
         DrawPauseIcon(pp_cx, pp_cy, icon_size, pp_icon_color);
     } else {
@@ -372,8 +372,8 @@ static void client_ui_draw(client_ui_t *ui) {
     // Stop button
     bool stop_enabled = (current_state != STATE_INIT);
     bool stop_hovered = IsMouseOver(ui->stop_btn_rect) && stop_enabled;
-    
-    DrawRoundedButton(ui->stop_btn_rect, stop_enabled ? UI_DANGER_COLOR : UI_DISABLED_COLOR, 
+
+    DrawRoundedButton(ui->stop_btn_rect, stop_enabled ? UI_DANGER_COLOR : UI_DISABLED_COLOR,
                       UI_DANGER_HOVER, stop_enabled, stop_hovered);
     DrawStopIcon(
         ui->stop_btn_rect.x + ui->stop_btn_rect.width / 2,

@@ -148,12 +148,12 @@ static void *send_rtp_thread(void *arg) {
             session->video_stream.frame_num
         );
 
-        // Wait 50ms for 20 FPS video
+        // Wait ~33ms for 30 FPS video (matches client consume rate)
         gettimeofday(&now, NULL);
 
         // Convert us to ns by multiplying by 1000
         wait_time.tv_sec = now.tv_sec;
-        wait_time.tv_nsec = (now.tv_usec + 50000) * 1000;
+        wait_time.tv_nsec = (now.tv_usec + 33333) * 1000;  // 33.333ms = 30 FPS
 
         // Handle nanosecond overflow (if > 1 billion)
         if (wait_time.tv_nsec >= 1000000000) {
