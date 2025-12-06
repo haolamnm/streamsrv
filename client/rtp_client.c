@@ -17,8 +17,8 @@
 // Max single packet: RTP header + fragment header + MTU payload
 #define RTP_RECV_BUFFER_SIZE (RTP_HEADER_SIZE + RTP_FRAG_HEADER_SIZE + RTP_MTU_PAYLOAD + 64)
 
-// Minimum frames to buffer before starting playback (half of CACHE_SIZE)
-#define MIN_BUFFER_FRAMES 10
+// Minimum frames to buffer before starting playback (75% of CACHE_SIZE)
+#define MIN_BUFFER_FRAMES 15
 
 // Add a completed frame to the cache
 static void cache_add_frame(rtp_client_t *rtp, const uint8_t *data, size_t size, uint16_t seqnum) {
