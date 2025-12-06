@@ -1,12 +1,12 @@
-#include "../common/logger.h"
-#include "rtp_client.h"
-#include "rtsp_client.h"
-#include "client_ui.h"
-
 #include <raylib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "../common/logger.h"
+#include "client_ui.h"
+#include "rtp_client.h"
+#include "rtsp_client.h"
 
 int main(int argc, char *argv[]) {
     logger_init(LOG_SRC_CLIENT);
@@ -36,7 +36,8 @@ int main(int argc, char *argv[]) {
     SetTraceLogLevel(LOG_ERROR);
 
     // Pass the un-connected client struct to the UI
-    // The UI will be responsible for triggering the connection when the user clicks "SETUP"
+    // The UI will be responsible for triggering the connection when the user
+    // clicks "SETUP"
     client_ui_init(&ui, &client, &rtp, server_ip, server_port, rtp_port, video_file);
 
     logger_log("running ui loop...");

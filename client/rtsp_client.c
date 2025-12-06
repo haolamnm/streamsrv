@@ -1,16 +1,17 @@
-#include "../common/logger.h"
 #include "rtsp_client.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netdb.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <errno.h>
+
+#include "../common/logger.h"
 
 #define RECV_BUFFER_SIZE 1024
 #define SEND_BUFFER_SIZE 1024
@@ -71,8 +72,8 @@ static rtsp_status_t process_rtsp_reply(rtsp_client_t *client, const char *reply
     }
 }
 
-static void *rtsp_reply_thread(void* arg) {
-    rtsp_client_t *client = (rtsp_client_t*)arg;
+static void *rtsp_reply_thread(void *arg) {
+    rtsp_client_t *client = (rtsp_client_t *)arg;
     char recv_buffer[RECV_BUFFER_SIZE];
 
     logger_log("rtsp reply thread started");
@@ -95,14 +96,13 @@ static void *rtsp_reply_thread(void* arg) {
     return NULL;
 }
 
-int rtsp_client_connect(
-    rtsp_client_t *client,
-    const char *server_ip,
-    int server_port,
-    const char *filename,
-    int rtp_port
-) {
-    memset(client, 0, sizeof(rtsp_client_t));
+int rtsp_client_connect(rtsp_client_t *client,
+                        const char *server_ip,
+                        int server_port,
+                        const char *filename,
+                        int rtp_port) {
+    // Note: Do not memset the entire struct - the state_mutex is already
+    // initialized
     client->rtsp_socket_fd = -1;
     client->rtsp_seq = 0;
     client->session_id = 0;
@@ -132,7 +132,9 @@ int rtsp_client_connect(
     client->server_addr.sin_port = htons(server_port);
 
     // Establish the TCP connection
-    if (connect(client->rtsp_socket_fd, (struct sockaddr*)&client->server_addr, sizeof(client->server_addr)) < 0) {
+    if (connect(client->rtsp_socket_fd,
+                (struct sockaddr *)&client->server_addr,
+                sizeof(client->server_addr)) < 0) {
         logger_log("error connecting to server: %s", strerror(errno));
         close(client->rtsp_socket_fd);
         return -1;
@@ -165,9 +167,12 @@ int rtsp_client_send_setup(rtsp_client_t *client) {
     char send_buffer[SEND_BUFFER_SIZE];
     client->rtsp_seq++;
 
-    sprintf(send_buffer, "SETUP %s %s\r\nCSeq: %d\r\nTransport: RTP/UDP;client_port=%d\r\n\r\n",
-        client->video_file, RTSP_VERSION, client->rtsp_seq, client->rtp_port
-    );
+    sprintf(send_buffer,
+            "SETUP %s %s\r\nCSeq: %d\r\nTransport: RTP/UDP;client_port=%d\r\n\r\n",
+            client->video_file,
+            RTSP_VERSION,
+            client->rtsp_seq,
+            client->rtp_port);
     return send_rtsp_request(client, send_buffer);
 }
 
@@ -175,8 +180,12 @@ int rtsp_client_send_play(rtsp_client_t *client) {
     char send_buffer[SEND_BUFFER_SIZE];
     client->rtsp_seq++;
 
-    sprintf(send_buffer, "PLAY %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
-            client->video_file, RTSP_VERSION, client->rtsp_seq, client->session_id);
+    sprintf(send_buffer,
+            "PLAY %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
+            client->video_file,
+            RTSP_VERSION,
+            client->rtsp_seq,
+            client->session_id);
 
     return send_rtsp_request(client, send_buffer);
 }
@@ -185,8 +194,12 @@ int rtsp_client_send_pause(rtsp_client_t *client) {
     char send_buffer[SEND_BUFFER_SIZE];
     client->rtsp_seq++;
 
-    sprintf(send_buffer, "PAUSE %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
-            client->video_file, RTSP_VERSION, client->rtsp_seq, client->session_id);
+    sprintf(send_buffer,
+            "PAUSE %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
+            client->video_file,
+            RTSP_VERSION,
+            client->rtsp_seq,
+            client->session_id);
 
     return send_rtsp_request(client, send_buffer);
 }
@@ -195,8 +208,12 @@ int rtsp_client_send_teardown(rtsp_client_t *client) {
     char send_buffer[SEND_BUFFER_SIZE];
     client->rtsp_seq++;
 
-    sprintf(send_buffer, "TEARDOWN %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
-            client->video_file, RTSP_VERSION, client->rtsp_seq, client->session_id);
+    sprintf(send_buffer,
+            "TEARDOWN %s %s\r\nCSeq: %d\r\nSession: %d\r\n\r\n",
+            client->video_file,
+            RTSP_VERSION,
+            client->rtsp_seq,
+            client->session_id);
 
     return send_rtsp_request(client, send_buffer);
 }
