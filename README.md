@@ -13,4 +13,3 @@ make
 
 ./bin/client [server_ip] [server_port] [rtp_port] [video_file]
 ```
-## I'm here
