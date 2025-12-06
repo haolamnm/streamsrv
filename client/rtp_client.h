@@ -5,8 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define FRAME_BUFFER_SIZE 256000  // 256KB for HD frames
-#define CACHE_SIZE 20             // Pre-buffer frames (keep small to avoid stack overflow)
+#define FRAME_BUFFER_SIZE 524288  // 512KB for FHD frames
+#define CACHE_SIZE 20             // Pre-buffer frames
 
 // Statistics for packet tracking
 typedef struct {
@@ -18,17 +18,17 @@ typedef struct {
     int first_packet;  // Flag for first packet
 } rtp_stats_t;
 
-// Single frame in the cache
+// Single frame in the cache (heap allocated data)
 typedef struct {
-    uint8_t data[FRAME_BUFFER_SIZE];
+    uint8_t *data;      // Heap-allocated frame data
     size_t size;
     uint16_t seqnum;    // RTP sequence number (for ordering)
     int valid;          // 1 if frame is ready to display
 } cached_frame_t;
 
-// Fragment reassembly buffer
+// Fragment reassembly buffer (heap allocated data)
 typedef struct {
-    uint8_t data[FRAME_BUFFER_SIZE];
+    uint8_t *data;      // Heap-allocated reassembly buffer
     size_t received_size;
     size_t total_size;
     uint16_t seqnum;

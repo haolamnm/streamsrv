@@ -84,7 +84,7 @@ static void process_fragment(rtp_client_t *rtp, const uint8_t *payload, size_t p
         buf->received_size = 0;
         buf->frags_received = 0;
         buf->frags_bitmap = 0;  // Reset bitmap
-        buf->total_frags = rtp_calc_fragments(frag_header.total_size);
+        buf->total_frags = frag_header.total_frags;  // Use value from header
         buf->in_progress = 1;
     }
 
@@ -200,8 +200,30 @@ int rtp_client_open_port(rtp_client_t *rtp, int port) {
     pthread_mutex_init(&rtp->cache.mutex, NULL);
     rtp->cache.buffering = 1;  // Start in buffering mode
 
-    // Initialize fragment buffer
+    // Allocate heap memory for each cached frame
+    for (int i = 0; i < CACHE_SIZE; i++) {
+        rtp->cache.frames[i].data = (uint8_t *)malloc(FRAME_BUFFER_SIZE);
+        if (rtp->cache.frames[i].data == NULL) {
+            logger_log("error allocating cache frame %d", i);
+            // Free already allocated frames
+            for (int j = 0; j < i; j++) {
+                free(rtp->cache.frames[j].data);
+            }
+            return -1;
+        }
+        rtp->cache.frames[i].valid = 0;
+    }
+
+    // Initialize fragment buffer with heap allocation
     memset(&rtp->frag_buf, 0, sizeof(fragment_buffer_t));
+    rtp->frag_buf.data = (uint8_t *)malloc(FRAME_BUFFER_SIZE);
+    if (rtp->frag_buf.data == NULL) {
+        logger_log("error allocating fragment buffer");
+        for (int i = 0; i < CACHE_SIZE; i++) {
+            free(rtp->cache.frames[i].data);
+        }
+        return -1;
+    }
 
     // Initialize statistics
     memset(&rtp->stats, 0, sizeof(rtp_stats_t));
@@ -242,7 +264,7 @@ int rtp_client_open_port(rtp_client_t *rtp, int port) {
         return -1;
     }
 
-    logger_log("rtp port opened and bound to %d (with %d-frame cache)", port, CACHE_SIZE);
+    logger_log("rtp port opened and bound to %d (with %d-frame cache, heap allocated)", port, CACHE_SIZE);
     return 0;
 }
 
@@ -317,6 +339,21 @@ void rtp_client_stop_listener(rtp_client_t *rtp) {
     if (rtp->rtp_socket_fd > 0) {
         close(rtp->rtp_socket_fd);
     }
+    
+    // Free heap-allocated cache frames
+    for (int i = 0; i < CACHE_SIZE; i++) {
+        if (rtp->cache.frames[i].data != NULL) {
+            free(rtp->cache.frames[i].data);
+            rtp->cache.frames[i].data = NULL;
+        }
+    }
+    
+    // Free fragment buffer
+    if (rtp->frag_buf.data != NULL) {
+        free(rtp->frag_buf.data);
+        rtp->frag_buf.data = NULL;
+    }
+    
     pthread_mutex_destroy(&rtp->cache.mutex);
     pthread_mutex_destroy(&rtp->stats_mutex);
 }
