@@ -9,6 +9,16 @@
 #include <string.h>
 #include <math.h>
 
+// Adaptive frame timing constants (for buffer stabilization)
+// Target buffer level: 75% (matching MIN_BUFFER_FRAMES)
+#define BUFFER_TARGET_HIGH   80   // Above this: consume faster
+#define BUFFER_TARGET_LOW    70   // Below this: consume slower
+
+// Frame intervals in seconds (30 FPS base = 0.033s)
+#define FRAME_INTERVAL_FAST   0.032  // ~31.25 FPS - drain buffer
+#define FRAME_INTERVAL_NORMAL 0.033  // ~30.30 FPS - maintain buffer
+#define FRAME_INTERVAL_SLOW   0.034  // ~29.41 FPS - fill buffer
+
 // Helper function to check if mouse is hovering over a rectangle
 static bool IsMouseOver(Rectangle rect) {
     return CheckCollisionPointRec(GetMousePosition(), rect);
@@ -234,9 +244,21 @@ static void client_ui_update_logic(client_ui_t *ui) {
     if (current_state == STATE_PLAYING) {
         // Only update video if not buffering
         if (!rtp_client_is_buffering(ui->rtp)) {
-            // Throttle to 30 FPS (33ms per frame) - matches server send rate
+            // Adaptive frame timing to stabilize buffer around target level
             double now = GetTime();
-            if (now - ui->last_frame_time >= 0.033) {  // 33ms = 30 FPS
+            int buffer_level = ui->last_buffer_level;
+            
+            // Adjust consume rate based on buffer level vs target
+            double frame_interval;
+            if (buffer_level > BUFFER_TARGET_HIGH) {
+                frame_interval = FRAME_INTERVAL_FAST;  // Consume faster to drain buffer
+            } else if (buffer_level < BUFFER_TARGET_LOW) {
+                frame_interval = FRAME_INTERVAL_SLOW;  // Consume slower to fill buffer
+            } else {
+                frame_interval = FRAME_INTERVAL_NORMAL;  // Normal rate
+            }
+            
+            if (now - ui->last_frame_time >= frame_interval) {
                 client_ui_update_video(ui);
                 ui->last_frame_time = now;
             }
