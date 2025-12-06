@@ -1,7 +1,18 @@
 #include "../common/logger.h"
 #include "server_worker.h"
 
-#include <asm-generic/socket.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+
+#ifdef __linux__
+#include <asm-generic/socket.h> // Linux-only
+#endif
+
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
