@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #define FRAME_BUFFER_SIZE 256000  // 256KB for HD frames
-#define CACHE_SIZE 10             // Pre-buffer 10 frames
+#define CACHE_SIZE 20             // Pre-buffer frames (keep small to avoid stack overflow)
 
 // Statistics for packet tracking
 typedef struct {
@@ -34,6 +34,7 @@ typedef struct {
     uint16_t seqnum;
     uint8_t frags_received;
     uint8_t total_frags;
+    uint32_t frags_bitmap;  // Bitmap to track which fragments received (up to 32)
     int in_progress;    // 1 if currently receiving fragments
 } fragment_buffer_t;
 
@@ -57,7 +58,7 @@ typedef struct {
 
     // Frame cache for jitter buffering
     frame_cache_t cache;
-    
+
     // Statistics
     rtp_stats_t stats;
     pthread_mutex_t stats_mutex;

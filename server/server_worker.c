@@ -36,9 +36,9 @@ static int send_frame_fragmented(
 ) {
     uint8_t rtp_buffer[RTP_PACKET_BUFFER_SIZE];
     uint8_t frag_buffer[RTP_MTU_PAYLOAD + RTP_FRAG_HEADER_SIZE];
-    
+
     int total_frags = rtp_calc_fragments(frame_size);
-    
+
     if (total_frags == 1) {
         // Small frame - send without fragmentation (backwards compatible)
         size_t packet_size = rtp_packet_encode(
@@ -48,7 +48,7 @@ static int send_frame_fragmented(
             1, MJPEG_TYPE, 0, // marker=1 for complete frame
             frame_data, frame_size
         );
-        
+
         if (packet_size > 0) {
             ssize_t sent = sendto(socket_fd, rtp_buffer, packet_size, 0,
                 (struct sockaddr *)addr, sizeof(*addr));
@@ -60,17 +60,17 @@ static int send_frame_fragmented(
     } else {
         // Large frame - fragment it
         size_t offset = 0;
-        
+
         for (int i = 0; i < total_frags; i++) {
             size_t chunk_size = frame_size - offset;
             if (chunk_size > RTP_MTU_PAYLOAD) {
                 chunk_size = RTP_MTU_PAYLOAD;
             }
-            
+
             // Build fragment: header + data
             rtp_frag_encode(frag_buffer, i, total_frags, frame_size);
             memcpy(frag_buffer + RTP_FRAG_HEADER_SIZE, frame_data + offset, chunk_size);
-            
+
             // Wrap in RTP packet
             size_t packet_size = rtp_packet_encode(
                 rtp_buffer, RTP_PACKET_BUFFER_SIZE,
@@ -80,7 +80,7 @@ static int send_frame_fragmented(
                 MJPEG_TYPE, 0,
                 frag_buffer, RTP_FRAG_HEADER_SIZE + chunk_size
             );
-            
+
             if (packet_size > 0) {
                 ssize_t sent = sendto(socket_fd, rtp_buffer, packet_size, 0,
                     (struct sockaddr *)addr, sizeof(*addr));
@@ -89,14 +89,14 @@ static int send_frame_fragmented(
                     return -1;
                 }
             }
-            
+
             offset += chunk_size;
-            
+
             // Small delay between fragments to avoid overwhelming the network
             usleep(100);  // 0.1ms
         }
     }
-    
+
     return 0;
 }
 
@@ -148,12 +148,12 @@ static void *send_rtp_thread(void *arg) {
             session->video_stream.frame_num
         );
 
-        // Wait 50ms for 20 FPS video
+        // Wait ~33ms for 30 FPS video (matches client consume rate)
         gettimeofday(&now, NULL);
 
         // Convert us to ns by multiplying by 1000
         wait_time.tv_sec = now.tv_sec;
-        wait_time.tv_nsec = (now.tv_usec + 50000) * 1000;
+        wait_time.tv_nsec = (now.tv_usec + 33333) * 1000;  // 33.333ms = 30 FPS
 
         // Handle nanosecond overflow (if > 1 billion)
         if (wait_time.tv_nsec >= 1000000000) {

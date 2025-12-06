@@ -14,7 +14,14 @@ CLIENT_OBJS = $(patsubst client/%.c, obj/client/%.o, $(CLIENT_SRCS))
 SERVER_BIN = bin/server
 CLIENT_BIN = bin/client
 
-all: $(SERVER_BIN) $(CLIENT_BIN)
+# Directories to create
+DIRS = bin obj/common obj/server obj/client
+
+all: $(DIRS) $(SERVER_BIN) $(CLIENT_BIN)
+
+# Create directories if they don't exist
+$(DIRS):
+	@mkdir -p $@
 
 $(SERVER_BIN): $(COMMON_OBJS) $(SERVER_OBJS)
 	@echo "Linking server..."
@@ -24,20 +31,20 @@ $(CLIENT_BIN): $(COMMON_OBJS) $(CLIENT_OBJS)
 	@echo "Linking client..."
 	$(CC) $(LDFLAGS) $^ -o $@ $(RAYLIB_LIBS)
 
-obj/common/%.o: common/%.c
+obj/common/%.o: common/%.c | obj/common
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -c $< -o $@
 
-obj/server/%.o: server/%.c
+obj/server/%.o: server/%.c | obj/server
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -Icommon -c $< -o $@
 
-obj/client/%.o: client/%.c
+obj/client/%.o: client/%.c | obj/client
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -Icommon -c $< -o $@
 
 clean:
 	@echo "Cleaning up..."
-	rm -rf obj/*/*.o $(SERVER_BIN) $(CLIENT_BIN)
+	rm -rf obj bin
 
-.PHONY: all clean
+.PHONY: all clean $(DIRS)

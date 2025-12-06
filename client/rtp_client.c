@@ -17,41 +17,43 @@
 // Max single packet: RTP header + fragment header + MTU payload
 #define RTP_RECV_BUFFER_SIZE (RTP_HEADER_SIZE + RTP_FRAG_HEADER_SIZE + RTP_MTU_PAYLOAD + 64)
 
-// Minimum frames to buffer before starting playback
-#define MIN_BUFFER_FRAMES 3
+// Minimum frames to buffer before starting playback (half of CACHE_SIZE)
+#define MIN_BUFFER_FRAMES 10
 
 // Add a completed frame to the cache
 static void cache_add_frame(rtp_client_t *rtp, const uint8_t *data, size_t size, uint16_t seqnum) {
     pthread_mutex_lock(&rtp->cache.mutex);
-    
+
+    // If cache is full, drop the OLDEST frame to make room for new one
+    if (rtp->cache.count >= CACHE_SIZE) {
+        // Advance read index to drop oldest frame
+        rtp->cache.frames[rtp->cache.read_idx].valid = 0;
+        rtp->cache.read_idx = (rtp->cache.read_idx + 1) % CACHE_SIZE;
+        rtp->cache.count--;
+
+        pthread_mutex_lock(&rtp->stats_mutex);
+        rtp->stats.frames_dropped++;
+        pthread_mutex_unlock(&rtp->stats_mutex);
+    }
+
     cached_frame_t *frame = &rtp->cache.frames[rtp->cache.write_idx];
-    
+
     if (size <= FRAME_BUFFER_SIZE) {
         memcpy(frame->data, data, size);
         frame->size = size;
         frame->seqnum = seqnum;
         frame->valid = 1;
-        
+
         rtp->cache.write_idx = (rtp->cache.write_idx + 1) % CACHE_SIZE;
-        
-        if (rtp->cache.count < CACHE_SIZE) {
-            rtp->cache.count++;
-        } else {
-            // Overwriting old frame, move read index
-            rtp->cache.read_idx = (rtp->cache.read_idx + 1) % CACHE_SIZE;
-            
-            pthread_mutex_lock(&rtp->stats_mutex);
-            rtp->stats.frames_dropped++;
-            pthread_mutex_unlock(&rtp->stats_mutex);
-        }
-        
+        rtp->cache.count++;
+
         // Check if we have enough frames to start playback
         if (rtp->cache.buffering && rtp->cache.count >= MIN_BUFFER_FRAMES) {
             rtp->cache.buffering = 0;
             logger_log("buffering complete, starting playback (cached %d frames)", rtp->cache.count);
         }
     }
-    
+
     pthread_mutex_unlock(&rtp->cache.mutex);
 }
 
@@ -60,47 +62,60 @@ static void process_fragment(rtp_client_t *rtp, const uint8_t *payload, size_t p
     if (payload_size < RTP_FRAG_HEADER_SIZE) {
         return;
     }
-    
+
     rtp_frag_header_t frag_header;
     rtp_frag_decode(payload, &frag_header);
-    
+
     const uint8_t *frag_data = payload + RTP_FRAG_HEADER_SIZE;
     size_t frag_size = payload_size - RTP_FRAG_HEADER_SIZE;
-    
+
     fragment_buffer_t *buf = &rtp->frag_buf;
-    
+
     if (rtp_frag_is_first(&frag_header)) {
-        // Start of new frame
+        // Start of new frame - abandon any incomplete previous frame
+        if (buf->in_progress && buf->seqnum != seqnum) {
+            // Previous frame was incomplete, drop it
+            pthread_mutex_lock(&rtp->stats_mutex);
+            rtp->stats.frames_dropped++;
+            pthread_mutex_unlock(&rtp->stats_mutex);
+        }
         buf->seqnum = seqnum;
         buf->total_size = frag_header.total_size;
         buf->received_size = 0;
         buf->frags_received = 0;
+        buf->frags_bitmap = 0;  // Reset bitmap
         buf->total_frags = rtp_calc_fragments(frag_header.total_size);
         buf->in_progress = 1;
-        logger_log("starting frame reassembly: seqnum=%u, total_size=%zu, frags=%d", 
-            seqnum, buf->total_size, buf->total_frags);
     }
-    
+
     // All fragments of same frame share the same seqnum
-    if (!buf->in_progress) {
-        // No frame in progress, skip
+    if (!buf->in_progress || buf->seqnum != seqnum) {
+        // No frame in progress or fragment from different frame, skip
         return;
     }
-    
+
+    // Check if we already received this fragment (duplicate)
+    if (frag_header.frag_index < 32 && (buf->frags_bitmap & (1u << frag_header.frag_index))) {
+        return;  // Already have this fragment
+    }
+
     // Copy fragment data
     size_t offset = frag_header.frag_index * RTP_MTU_PAYLOAD;
     if (offset + frag_size <= FRAME_BUFFER_SIZE) {
         memcpy(buf->data + offset, frag_data, frag_size);
         buf->received_size += frag_size;
         buf->frags_received++;
+        if (frag_header.frag_index < 32) {
+            buf->frags_bitmap |= (1u << frag_header.frag_index);
+        }
     }
-    
+
     // Check if frame is complete
-    if (rtp_frag_is_last(&frag_header) && buf->frags_received == buf->total_frags) {
+    if (buf->frags_received == buf->total_frags) {
         // Frame complete, add to cache
         cache_add_frame(rtp, buf->data, buf->received_size, seqnum);
         buf->in_progress = 0;
-        
+
         pthread_mutex_lock(&rtp->stats_mutex);
         rtp->stats.frames_received++;
         pthread_mutex_unlock(&rtp->stats_mutex);
@@ -110,7 +125,7 @@ static void process_fragment(rtp_client_t *rtp, const uint8_t *payload, size_t p
 // Process a non-fragmented frame (legacy/small frames)
 static void process_single_frame(rtp_client_t *rtp, const uint8_t *payload, size_t payload_size, uint16_t seqnum) {
     cache_add_frame(rtp, payload, payload_size, seqnum);
-    
+
     pthread_mutex_lock(&rtp->stats_mutex);
     rtp->stats.frames_received++;
     pthread_mutex_unlock(&rtp->stats_mutex);
@@ -148,7 +163,7 @@ static void *rtp_listen_thread(void *arg) {
         // Update statistics
         pthread_mutex_lock(&rtp->stats_mutex);
         rtp->stats.packets_received++;
-        
+
         if (!rtp->stats.first_packet) {
             rtp->stats.first_packet = 1;
             rtp->stats.last_seqnum = header.seqnum;
@@ -174,7 +189,7 @@ static void *rtp_listen_thread(void *arg) {
             process_fragment(rtp, payload, payload_size, header.seqnum);
         }
     }
-    
+
     logger_log("rtp listen thread stopping");
     return NULL;
 }
@@ -184,14 +199,14 @@ int rtp_client_open_port(rtp_client_t *rtp, int port) {
     memset(&rtp->cache, 0, sizeof(frame_cache_t));
     pthread_mutex_init(&rtp->cache.mutex, NULL);
     rtp->cache.buffering = 1;  // Start in buffering mode
-    
+
     // Initialize fragment buffer
     memset(&rtp->frag_buf, 0, sizeof(fragment_buffer_t));
-    
+
     // Initialize statistics
     memset(&rtp->stats, 0, sizeof(rtp_stats_t));
     pthread_mutex_init(&rtp->stats_mutex, NULL);
-    
+
     rtp->stop_thread = 1;
     rtp->rtp_socket_fd = -1;
 
@@ -226,7 +241,7 @@ int rtp_client_open_port(rtp_client_t *rtp, int port) {
         close(rtp->rtp_socket_fd);
         return -1;
     }
-    
+
     logger_log("rtp port opened and bound to %d (with %d-frame cache)", port, CACHE_SIZE);
     return 0;
 }
@@ -242,31 +257,33 @@ int rtp_client_start_listener(rtp_client_t *rtp) {
 
 size_t rtp_client_get_frame(rtp_client_t *rtp, uint8_t *out_buffer) {
     size_t frame_size = 0;
-    
+
     pthread_mutex_lock(&rtp->cache.mutex);
-    
-    // Don't return frames while still buffering
+
+    // Don't return frames while still in initial buffering
     if (rtp->cache.buffering) {
         pthread_mutex_unlock(&rtp->cache.mutex);
         return 0;
     }
-    
+
     // Check if there's a frame to read
     if (rtp->cache.count > 0) {
         cached_frame_t *frame = &rtp->cache.frames[rtp->cache.read_idx];
-        
+
         if (frame->valid) {
             memcpy(out_buffer, frame->data, frame->size);
             frame_size = frame->size;
             frame->valid = 0;
-            
+
             rtp->cache.read_idx = (rtp->cache.read_idx + 1) % CACHE_SIZE;
             rtp->cache.count--;
         }
     }
-    
+    // If cache is empty, just return 0 - UI will keep showing last frame
+    // No re-buffering needed, frames will arrive soon
+
     pthread_mutex_unlock(&rtp->cache.mutex);
-    
+
     return frame_size;
 }
 
