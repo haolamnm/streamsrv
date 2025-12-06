@@ -21,8 +21,8 @@
 #define RECV_BUFFER_SIZE 2048
 #define SEND_BUFFER_SIZE 1024
 
-// 256KB for HD MJPEG frames
-#define FRAME_BUFFER_SIZE 262144
+// 512KB for FHD MJPEG frames
+#define FRAME_BUFFER_SIZE 524288
 // Single RTP packet buffer (for fragments)
 #define RTP_PACKET_BUFFER_SIZE (RTP_MTU_PAYLOAD + RTP_FRAG_HEADER_SIZE + RTP_HEADER_SIZE + 64)
 
