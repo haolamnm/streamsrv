@@ -56,6 +56,18 @@ static void parse_header_line(const char *line, rtsp_request_info_t *info) {
             port_str += 12; // move past "client_port="
             info->rtp_port = atoi(port_str);
         }
+    } else if (strcasecmp(header_name, "Range") == 0) {
+        // Parse Range header: "Range: npt=MM:SS.FF-" or "Range: npt=MM:SS.FF-MM:SS.FF"
+        // We only care about the start position
+        int minutes = 0, seconds = 0, centiseconds = 0;
+        if (sscanf(header_value, "npt=%d:%d.%d", &minutes, &seconds, &centiseconds) == 3) {
+            info->seek_position = minutes * 60 + seconds + centiseconds / 100.0;
+            info->has_seek = 1;
+        }
+    } else if (strcasecmp(header_name, "X-Frame") == 0) {
+        // Parse custom frame number header
+        info->frame_number = atoi(header_value);
+        info->has_frame_seek = 1;
     }
 }
 

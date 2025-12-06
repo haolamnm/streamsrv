@@ -73,6 +73,34 @@ static void DrawConnectIcon(float cx, float cy, float size, Color color) {
     DrawRing((Vector2){ cx, cy }, size * 0.45f, size * 0.55f, 0, 360, 36, color);
 }
 
+// Draw seek back icon (rewind)
+static void DrawSeekBackIcon(float cx, float cy, float size, Color color) {
+    // Two backward triangles
+    Vector2 v1 = { cx - size * 0.3f, cy - size * 0.4f };
+    Vector2 v2 = { cx - size * 0.3f, cy + size * 0.4f };
+    Vector2 v3 = { cx - size * 0.6f, cy };
+    DrawTriangle(v1, v2, v3, color);
+
+    Vector2 v4 = { cx + size * 0.1f, cy - size * 0.4f };
+    Vector2 v5 = { cx + size * 0.1f, cy + size * 0.4f };
+    Vector2 v6 = { cx - size * 0.2f, cy };
+    DrawTriangle(v4, v5, v6, color);
+}
+
+// Draw seek forward icon (fast forward)
+static void DrawSeekForwardIcon(float cx, float cy, float size, Color color) {
+    // Two forward triangles
+    Vector2 v1 = { cx + size * 0.3f, cy - size * 0.4f };
+    Vector2 v2 = { cx + size * 0.3f, cy + size * 0.4f };
+    Vector2 v3 = { cx + size * 0.6f, cy };
+    DrawTriangle(v1, v2, v3, color);
+
+    Vector2 v4 = { cx - size * 0.1f, cy - size * 0.4f };
+    Vector2 v5 = { cx - size * 0.1f, cy + size * 0.4f };
+    Vector2 v6 = { cx + size * 0.2f, cy };
+    DrawTriangle(v4, v5, v6, color);
+}
+
 // Helper function to update UI layout based on current dimensions
 static void client_ui_update_layout(client_ui_t *ui) {
     ui->video_rect = (Rectangle){ 0, 0, ui->screen_width, ui->video_height };
@@ -82,14 +110,16 @@ static void client_ui_update_layout(client_ui_t *ui) {
 
     // Button layout - centered with gaps
     float btn_size = 50.0f;
-    float gap = 20.0f;
-    float total_width = btn_size * 3 + gap * 2;
+    float gap = 10.0f;
+    float total_width = btn_size * 5 + gap * 4;
     float start_x = (ui->screen_width - total_width) / 2;
     float btn_y = ui->toolbar_rect.y + (TOOLBAR_HEIGHT - btn_size) / 2;
 
     ui->connect_btn_rect = (Rectangle){ start_x, btn_y, btn_size, btn_size };
-    ui->playpause_btn_rect = (Rectangle){ start_x + btn_size + gap, btn_y, btn_size, btn_size };
-    ui->stop_btn_rect = (Rectangle){ start_x + 2 * (btn_size + gap), btn_y, btn_size, btn_size };
+    ui->seek_back_btn_rect = (Rectangle){ start_x + btn_size + gap, btn_y, btn_size, btn_size };
+    ui->playpause_btn_rect = (Rectangle){ start_x + 2 * (btn_size + gap), btn_y, btn_size, btn_size };
+    ui->seek_forward_btn_rect = (Rectangle){ start_x + 3 * (btn_size + gap), btn_y, btn_size, btn_size };
+    ui->stop_btn_rect = (Rectangle){ start_x + 4 * (btn_size + gap), btn_y, btn_size, btn_size };
 }
 
 void client_ui_init(
@@ -115,7 +145,16 @@ void client_ui_init(
     ui->play_start_time = 0;
     ui->elapsed_time = 0;
     ui->timer_running = false;
+    ui->video_ended = false;
+    ui->frame_count = 0;
+    ui->frame_count_at_seek = 0;
+    ui->current_frame_number = 0;
     ui->last_frame_time = 0;
+    ui->consecutive_empty_frames = 0;
+
+    // Auto-play after seek
+    ui->seek_time_pending = 0;
+    ui->auto_play_after_seek = false;
 
     // Statistics initialization
     memset(&ui->last_stats, 0, sizeof(rtp_stats_t));
@@ -142,48 +181,48 @@ void client_ui_init(
     EndTextureMode();
 }
 
-static void client_ui_update_video(client_ui_t *ui) {
-    size_t frame_size = rtp_client_get_frame(ui->rtp, ui->frame_data_buffer);
+static void client_ui_update_video(client_ui_t *ui, const uint8_t *frame_data, size_t frame_size) {
+    if (frame_size <= 0) {
+        return;
+    }
 
-    if (frame_size > 0) {
-        // Got a new frame
-        Image img = LoadImageFromMemory(".jpg", ui->frame_data_buffer, frame_size);
+    // Got a new frame
+    Image img = LoadImageFromMemory(".jpg", frame_data, frame_size);
 
-        if (img.data != NULL) {
-            // Detect video resolution from first frame and resize window
-            if (!ui->video_size_detected && img.width > 0 && img.height > 0) {
-                ui->video_width = img.width;
-                ui->video_height = img.height;
-                ui->screen_width = img.width;
-                ui->screen_height = img.height + (int)TIMER_HEIGHT + (int)STATS_HEIGHT + (int)TOOLBAR_HEIGHT;
-                ui->video_size_detected = true;
+    if (img.data != NULL) {
+        // Detect video resolution from first frame and resize window
+        if (!ui->video_size_detected && img.width > 0 && img.height > 0) {
+            ui->video_width = img.width;
+            ui->video_height = img.height;
+            ui->screen_width = img.width;
+            ui->screen_height = img.height + (int)TIMER_HEIGHT + (int)STATS_HEIGHT + (int)TOOLBAR_HEIGHT;
+            ui->video_size_detected = true;
 
-                // Resize window to match video
-                SetWindowSize(ui->screen_width, ui->screen_height);
+            // Resize window to match video
+            SetWindowSize(ui->screen_width, ui->screen_height);
 
-                // Recreate video texture with correct size
-                UnloadRenderTexture(ui->video_texture);
-                ui->video_texture = LoadRenderTexture(ui->video_width, ui->video_height);
+            // Recreate video texture with correct size
+            UnloadRenderTexture(ui->video_texture);
+            ui->video_texture = LoadRenderTexture(ui->video_width, ui->video_height);
 
-                // Update layout
-                client_ui_update_layout(ui);
+            // Update layout
+            client_ui_update_layout(ui);
 
-                logger_log("video resolution detected: %dx%d", img.width, img.height);
-            }
-
-            Texture2D tex = LoadTextureFromImage(img); // convert img to texture
-
-            BeginTextureMode(ui->video_texture);
-            ClearBackground(BLACK);
-            // Draw at native resolution (1:1)
-            DrawTexture(tex, 0, 0, WHITE);
-            EndTextureMode();
-
-            UnloadTexture(tex);
-            UnloadImage(img);
-        } else {
-            logger_log("failed to load image from memory");
+            logger_log("video resolution detected: %dx%d", img.width, img.height);
         }
+
+        Texture2D tex = LoadTextureFromImage(img); // convert img to texture
+
+        BeginTextureMode(ui->video_texture);
+        ClearBackground(BLACK);
+        // Draw at native resolution (1:1)
+        DrawTexture(tex, 0, 0, WHITE);
+        EndTextureMode();
+
+        UnloadTexture(tex);
+        UnloadImage(img);
+    } else {
+        logger_log("failed to load image from memory");
     }
 }
 
@@ -197,9 +236,11 @@ static void client_ui_update_logic(client_ui_t *ui) {
     client_state_t current_state = ui->client->state;
     pthread_mutex_unlock(&ui->client->state_mutex);
 
-    // Update timer
-    if (ui->timer_running && current_state == STATE_PLAYING) {
-        ui->elapsed_time = GetTime() - ui->play_start_time;
+    // Update timer based on absolute frame number (frame / FPS)
+    // Timer reflects the absolute position in the video regardless of seeks
+    if (ui->timer_running) {
+        const double FPS = 20.0;
+        ui->elapsed_time = ((double)ui->current_frame_number) / FPS;
     }
 
     // Update statistics periodically
@@ -225,7 +266,10 @@ static void client_ui_update_logic(client_ui_t *ui) {
         if (current_state == STATE_READY) {
             logger_log("play button clicked");
             rtsp_client_send_play(ui->client);
-            ui->play_start_time = GetTime() - ui->elapsed_time;
+            ui->play_start_time = GetTime();
+            // Anchor the seek/frame counters to the current absolute frame
+            ui->frame_count = 0;
+            ui->frame_count_at_seek = ui->current_frame_number;  // Reset seek anchor when play starts
             ui->last_frame_time = GetTime();  // Reset frame timing for smooth start
             ui->timer_running = true;
         } else if (current_state == STATE_PLAYING) {
@@ -235,10 +279,82 @@ static void client_ui_update_logic(client_ui_t *ui) {
         }
     }
 
+    // Seek back button - go back 3 seconds
+    if (IsButtonClicked(ui->seek_back_btn_rect) && current_state != STATE_INIT) {
+        // Compute target frame relative to the absolute current frame
+        const double FPS = 20.0;
+        int current_frame = ui->current_frame_number;
+        int target_frame = current_frame - (int)(3.0 * FPS);
+        if (target_frame < 0) target_frame = 0;
+        double new_time = (double)target_frame / FPS;
+        logger_log("seek back button clicked - seeking to frame %d (%.1f seconds)", target_frame, new_time);
+        rtsp_client_send_seek_frame(ui->client, target_frame);
+        
+        // Reset frame counter and elapsed_time after seek
+        // Server will send frames starting from target_frame
+        ui->frame_count = 0;                 // Reset frame counter (server starts from target)
+        ui->frame_count_at_seek = target_frame; // Anchor absolute frame number for upcoming frames
+        ui->current_frame_number = target_frame;  // Set absolute frame number immediately
+        ui->elapsed_time = 0;          // Reset timer to 0
+        
+        ui->video_ended = false;  // Reset EOF flag after seek (don't stop during seek)
+        ui->consecutive_empty_frames = 0;
+        ui->last_frame_time = GetTime();
+        // Clear cache to discard old frames and start buffering from new position
+        rtp_client_clear_cache(ui->rtp);
+        
+        // Set auto-play after seek with 0.2s delay
+        ui->seek_time_pending = GetTime();
+        ui->auto_play_after_seek = true;
+    }
+
+    // Seek forward button - go forward 3 seconds
+    if (IsButtonClicked(ui->seek_forward_btn_rect) && current_state != STATE_INIT) {
+        // Compute target frame relative to the absolute current frame
+        const double FPS = 20.0;
+        int current_frame = ui->current_frame_number;
+        int target_frame = current_frame + (int)(3.0 * FPS);
+        
+        double new_time = (double)target_frame / FPS;
+        logger_log("seek forward button clicked - seeking to frame %d (%.1f seconds)", target_frame, new_time);
+        rtsp_client_send_seek_frame(ui->client, target_frame);
+        
+        // Reset frame counter and elapsed_time after seek
+        // Server will send frames starting from target_frame
+        ui->frame_count = 0;                 // Reset frame counter (server starts from target)
+        ui->frame_count_at_seek = target_frame; // Anchor absolute frame number for upcoming frames
+        ui->current_frame_number = target_frame;  // Set absolute frame number immediately
+        ui->elapsed_time = 0;          // Reset timer to 0
+        
+        ui->video_ended = false;  // Reset EOF flag after seek (don't stop during seek)
+        ui->consecutive_empty_frames = 0;
+        ui->last_frame_time = GetTime();
+        // Clear cache to discard old frames and start buffering from new position
+        rtp_client_clear_cache(ui->rtp);
+        // Set auto-play after seek with 0.2s delay
+        ui->seek_time_pending = GetTime();
+        ui->auto_play_after_seek = true;
+    }
+
     // Stop button - teardown
     if (IsButtonClicked(ui->stop_btn_rect) && current_state != STATE_INIT) {
         logger_log("stop button clicked");
         ui->close_signal = true;
+    }
+
+    // Auto-play after seek (0.2s delay)
+    if (ui->auto_play_after_seek && current_state != STATE_INIT) {
+        double now = GetTime();
+        double elapsed = now - ui->seek_time_pending;
+        if (elapsed >= 0.2) {
+            logger_log("auto-play triggered after 0.2s seek delay");
+            // Send PLAY command
+            if (current_state == STATE_READY) {
+                rtsp_client_send_play(ui->client);
+                ui->timer_running = true;
+            }
+            ui->auto_play_after_seek = false;
+        }
     }
 
     if (current_state == STATE_PLAYING) {
@@ -259,7 +375,28 @@ static void client_ui_update_logic(client_ui_t *ui) {
             }
             
             if (now - ui->last_frame_time >= frame_interval) {
-                client_ui_update_video(ui);
+                size_t frame_size = rtp_client_get_frame(ui->rtp, ui->frame_data_buffer);
+                
+                if (frame_size > 0) {
+                    // Got a frame - reset EOF counter and increment frame count
+                    ui->consecutive_empty_frames = 0;
+                    ui->frame_count++;
+                    // Update absolute frame number: frame_count tương đối từ seek được cộng vào seek position
+                    ui->current_frame_number = ui->frame_count_at_seek + ui->frame_count;
+                    client_ui_update_video(ui, ui->frame_data_buffer, frame_size);
+                } else {
+                    // No frame available
+                    ui->consecutive_empty_frames++;
+                    
+                    // If no frames for a while and buffer is empty, video has ended
+                    if (ui->consecutive_empty_frames > 30 && buffer_level == 0) {
+                        logger_log("video ended - no frames for %.1f seconds, buffer empty", 
+                            ui->consecutive_empty_frames * frame_interval);
+                        ui->video_ended = true;
+                        ui->timer_running = false;
+                    }
+                }
+                
                 ui->last_frame_time = now;
             }
         }
@@ -297,6 +434,17 @@ static void client_ui_draw(client_ui_t *ui) {
         (ui->screen_width - timer_text_width) / 2,
         ui->timer_rect.y + (TIMER_HEIGHT - timer_font_size) / 2,
         timer_font_size, UI_TEXT_COLOR
+    );
+
+    // Draw frame number on the right of timer
+    char frame_text[32];
+    sprintf(frame_text, "Frame: %d/500", ui->current_frame_number);
+    int frame_font_size = 12;
+    int frame_text_width = MeasureText(frame_text, frame_font_size);
+    DrawText(frame_text,
+        ui->screen_width - frame_text_width - 10,
+        ui->timer_rect.y + (TIMER_HEIGHT - frame_font_size) / 2,
+        frame_font_size, UI_TEXT_DIM_COLOR
     );
 
     // Draw status indicator on the left of timer
@@ -345,10 +493,10 @@ static void client_ui_draw(client_ui_t *ui) {
 
         // Packet stats
         char stats_text[64];
-        sprintf(stats_text, "Pkts: %u  Lost: %u  Frames: %u",
+        sprintf(stats_text, "Pkts: %u  Lost: %u",
             ui->last_stats.packets_received,
-            ui->last_stats.packets_lost,
-            ui->last_stats.frames_received);
+            ui->last_stats.packets_lost      
+        );
         int stats_width = MeasureText(stats_text, 12);
         DrawText(stats_text, ui->screen_width - stats_width - 10,
             ui->stats_rect.y + (STATS_HEIGHT - 12) / 2, 12, UI_TEXT_DIM_COLOR);
@@ -390,6 +538,31 @@ static void client_ui_draw(client_ui_t *ui) {
     } else {
         DrawPlayIcon(pp_cx, pp_cy, icon_size, pp_icon_color);
     }
+
+    // Seek back button
+    bool seek_back_enabled = (current_state != STATE_INIT);
+    bool seek_back_hovered = IsMouseOver(ui->seek_back_btn_rect) && seek_back_enabled;
+    Color seek_color = seek_back_enabled ? UI_ACCENT_COLOR : UI_DISABLED_COLOR;
+
+    DrawRoundedButton(ui->seek_back_btn_rect, seek_color, UI_ACCENT_HOVER, seek_back_enabled, seek_back_hovered);
+    DrawSeekBackIcon(
+        ui->seek_back_btn_rect.x + ui->seek_back_btn_rect.width / 2,
+        ui->seek_back_btn_rect.y + ui->seek_back_btn_rect.height / 2,
+        icon_size,
+        seek_back_enabled ? UI_TEXT_COLOR : UI_TEXT_DIM_COLOR
+    );
+
+    // Seek forward button
+    bool seek_forward_enabled = (current_state != STATE_INIT);
+    bool seek_forward_hovered = IsMouseOver(ui->seek_forward_btn_rect) && seek_forward_enabled;
+
+    DrawRoundedButton(ui->seek_forward_btn_rect, seek_color, UI_ACCENT_HOVER, seek_forward_enabled, seek_forward_hovered);
+    DrawSeekForwardIcon(
+        ui->seek_forward_btn_rect.x + ui->seek_forward_btn_rect.width / 2,
+        ui->seek_forward_btn_rect.y + ui->seek_forward_btn_rect.height / 2,
+        icon_size,
+        seek_forward_enabled ? UI_TEXT_COLOR : UI_TEXT_DIM_COLOR
+    );
 
     // Stop button
     bool stop_enabled = (current_state != STATE_INIT);

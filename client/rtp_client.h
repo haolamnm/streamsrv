@@ -80,6 +80,9 @@ int rtp_client_get_buffer_level(rtp_client_t *rtp);
 // Check if still in initial buffering phase
 int rtp_client_is_buffering(rtp_client_t *rtp);
 
+// Clear frame cache (useful for seek operations)
+void rtp_client_clear_cache(rtp_client_t *rtp);
+
 void rtp_client_stop_listener(rtp_client_t *rtp);
 
 #endif // RTP_CLIENT_H

@@ -33,6 +33,9 @@ typedef struct {
     pthread_mutex_t event_mutex;
     pthread_cond_t event_cond;
     int stop_rtp_thread; // 0 = play, 1 = stop (for PAUSE/TEARDOWN)
+    
+    // RTP sequence number counter (independent from video file frame count)
+    uint16_t rtp_seqnum;
 } session_t;
 
 void *server_worker_thread(void *arg);
