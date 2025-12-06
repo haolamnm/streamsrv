@@ -9,6 +9,10 @@
 typedef struct {
     FILE *file;
     int frame_num;
+    int total_frames;      // Cached total frame count
+    long file_size;        // Total file size in bytes
+    double avg_frame_size; // Average bytes per frame (for seeking in raw MJPEG)
+    int is_raw_mjpeg;      // 1 if raw MJPEG, 0 if header format
 } video_stream_t;
 
 int video_stream_open(video_stream_t *stream, const char *filename);
