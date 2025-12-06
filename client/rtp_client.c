@@ -24,6 +24,18 @@
 static void cache_add_frame(rtp_client_t *rtp, const uint8_t *data, size_t size, uint16_t seqnum) {
     pthread_mutex_lock(&rtp->cache.mutex);
     
+    // If cache is full, drop the OLDEST frame to make room for new one
+    if (rtp->cache.count >= CACHE_SIZE) {
+        // Advance read index to drop oldest frame
+        rtp->cache.frames[rtp->cache.read_idx].valid = 0;
+        rtp->cache.read_idx = (rtp->cache.read_idx + 1) % CACHE_SIZE;
+        rtp->cache.count--;
+        
+        pthread_mutex_lock(&rtp->stats_mutex);
+        rtp->stats.frames_dropped++;
+        pthread_mutex_unlock(&rtp->stats_mutex);
+    }
+    
     cached_frame_t *frame = &rtp->cache.frames[rtp->cache.write_idx];
     
     if (size <= FRAME_BUFFER_SIZE) {
@@ -33,17 +45,7 @@ static void cache_add_frame(rtp_client_t *rtp, const uint8_t *data, size_t size,
         frame->valid = 1;
         
         rtp->cache.write_idx = (rtp->cache.write_idx + 1) % CACHE_SIZE;
-        
-        if (rtp->cache.count < CACHE_SIZE) {
-            rtp->cache.count++;
-        } else {
-            // Overwriting old frame, move read index
-            rtp->cache.read_idx = (rtp->cache.read_idx + 1) % CACHE_SIZE;
-            
-            pthread_mutex_lock(&rtp->stats_mutex);
-            rtp->stats.frames_dropped++;
-            pthread_mutex_unlock(&rtp->stats_mutex);
-        }
+        rtp->cache.count++;
         
         // Check if we have enough frames to start playback
         if (rtp->cache.buffering && rtp->cache.count >= MIN_BUFFER_FRAMES) {
@@ -70,21 +72,31 @@ static void process_fragment(rtp_client_t *rtp, const uint8_t *payload, size_t p
     fragment_buffer_t *buf = &rtp->frag_buf;
     
     if (rtp_frag_is_first(&frag_header)) {
-        // Start of new frame
+        // Start of new frame - abandon any incomplete previous frame
+        if (buf->in_progress && buf->seqnum != seqnum) {
+            // Previous frame was incomplete, drop it
+            pthread_mutex_lock(&rtp->stats_mutex);
+            rtp->stats.frames_dropped++;
+            pthread_mutex_unlock(&rtp->stats_mutex);
+        }
         buf->seqnum = seqnum;
         buf->total_size = frag_header.total_size;
         buf->received_size = 0;
         buf->frags_received = 0;
+        buf->frags_bitmap = 0;  // Reset bitmap
         buf->total_frags = rtp_calc_fragments(frag_header.total_size);
         buf->in_progress = 1;
-        logger_log("starting frame reassembly: seqnum=%u, total_size=%zu, frags=%d", 
-            seqnum, buf->total_size, buf->total_frags);
     }
     
     // All fragments of same frame share the same seqnum
-    if (!buf->in_progress) {
-        // No frame in progress, skip
+    if (!buf->in_progress || buf->seqnum != seqnum) {
+        // No frame in progress or fragment from different frame, skip
         return;
+    }
+    
+    // Check if we already received this fragment (duplicate)
+    if (frag_header.frag_index < 32 && (buf->frags_bitmap & (1u << frag_header.frag_index))) {
+        return;  // Already have this fragment
     }
     
     // Copy fragment data
@@ -93,10 +105,13 @@ static void process_fragment(rtp_client_t *rtp, const uint8_t *payload, size_t p
         memcpy(buf->data + offset, frag_data, frag_size);
         buf->received_size += frag_size;
         buf->frags_received++;
+        if (frag_header.frag_index < 32) {
+            buf->frags_bitmap |= (1u << frag_header.frag_index);
+        }
     }
     
     // Check if frame is complete
-    if (rtp_frag_is_last(&frag_header) && buf->frags_received == buf->total_frags) {
+    if (buf->frags_received == buf->total_frags) {
         // Frame complete, add to cache
         cache_add_frame(rtp, buf->data, buf->received_size, seqnum);
         buf->in_progress = 0;
@@ -245,7 +260,7 @@ size_t rtp_client_get_frame(rtp_client_t *rtp, uint8_t *out_buffer) {
     
     pthread_mutex_lock(&rtp->cache.mutex);
     
-    // Don't return frames while still buffering
+    // Don't return frames while still in initial buffering
     if (rtp->cache.buffering) {
         pthread_mutex_unlock(&rtp->cache.mutex);
         return 0;
@@ -264,6 +279,8 @@ size_t rtp_client_get_frame(rtp_client_t *rtp, uint8_t *out_buffer) {
             rtp->cache.count--;
         }
     }
+    // If cache is empty, just return 0 - UI will keep showing last frame
+    // No re-buffering needed, frames will arrive soon
     
     pthread_mutex_unlock(&rtp->cache.mutex);
     

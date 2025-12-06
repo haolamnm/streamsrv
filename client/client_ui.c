@@ -105,6 +105,7 @@ void client_ui_init(
     ui->play_start_time = 0;
     ui->elapsed_time = 0;
     ui->timer_running = false;
+    ui->last_frame_time = 0;
     
     // Statistics initialization
     memset(&ui->last_stats, 0, sizeof(rtp_stats_t));
@@ -215,6 +216,7 @@ static void client_ui_update_logic(client_ui_t *ui) {
             logger_log("play button clicked");
             rtsp_client_send_play(ui->client);
             ui->play_start_time = GetTime() - ui->elapsed_time;
+            ui->last_frame_time = GetTime();  // Reset frame timing for smooth start
             ui->timer_running = true;
         } else if (current_state == STATE_PLAYING) {
             logger_log("pause button clicked");
@@ -232,7 +234,12 @@ static void client_ui_update_logic(client_ui_t *ui) {
     if (current_state == STATE_PLAYING) {
         // Only update video if not buffering
         if (!rtp_client_is_buffering(ui->rtp)) {
-            client_ui_update_video(ui);
+            // Throttle to ~20 FPS (50ms per frame) to match server's send rate
+            double now = GetTime();
+            if (now - ui->last_frame_time >= 0.050) {  // 50ms = 20 FPS
+                client_ui_update_video(ui);
+                ui->last_frame_time = now;
+            }
         }
     }
 }

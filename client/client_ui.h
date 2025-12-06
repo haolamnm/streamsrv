@@ -64,6 +64,9 @@ typedef struct {
     double elapsed_time;
     bool timer_running;
     
+    // Frame rate control - throttle to match server's 20 FPS
+    double last_frame_time;
+    
     // Statistics display
     rtp_stats_t last_stats;
     int last_buffer_level;
