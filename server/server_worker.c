@@ -1,5 +1,6 @@
 #include "../common/logger.h"
 #include "../common/rtp_packet.h"
+#include "../common/rtp_fragment.h"
 #include "server_worker.h"
 #include "rtsp_parser.h"
 #include "video_stream.h"
@@ -20,15 +21,89 @@
 #define RECV_BUFFER_SIZE 2048
 #define SEND_BUFFER_SIZE 1024
 
-// 64KB is a safe size for a single MJPEG frame
-#define FRAME_BUFFER_SIZE 65536
-#define RTP_PACKET_BUFFER_SIZE (FRAME_BUFFER_SIZE + RTP_HEADER_SIZE)
+// 256KB for HD MJPEG frames
+#define FRAME_BUFFER_SIZE 262144
+// Single RTP packet buffer (for fragments)
+#define RTP_PACKET_BUFFER_SIZE (RTP_MTU_PAYLOAD + RTP_FRAG_HEADER_SIZE + RTP_HEADER_SIZE + 64)
+
+// Send a single frame, fragmenting if necessary
+static int send_frame_fragmented(
+    int socket_fd,
+    struct sockaddr_in *addr,
+    const uint8_t *frame_data,
+    size_t frame_size,
+    uint16_t seqnum
+) {
+    uint8_t rtp_buffer[RTP_PACKET_BUFFER_SIZE];
+    uint8_t frag_buffer[RTP_MTU_PAYLOAD + RTP_FRAG_HEADER_SIZE];
+    
+    int total_frags = rtp_calc_fragments(frame_size);
+    
+    if (total_frags == 1) {
+        // Small frame - send without fragmentation (backwards compatible)
+        size_t packet_size = rtp_packet_encode(
+            rtp_buffer, RTP_PACKET_BUFFER_SIZE,
+            2, 0, 0, 0,     // version, padding, extension, cc
+            seqnum,
+            1, MJPEG_TYPE, 0, // marker=1 for complete frame
+            frame_data, frame_size
+        );
+        
+        if (packet_size > 0) {
+            ssize_t sent = sendto(socket_fd, rtp_buffer, packet_size, 0,
+                (struct sockaddr *)addr, sizeof(*addr));
+            if (sent < 0) {
+                logger_log("error sending rtp packet: %s", strerror(errno));
+                return -1;
+            }
+        }
+    } else {
+        // Large frame - fragment it
+        size_t offset = 0;
+        
+        for (int i = 0; i < total_frags; i++) {
+            size_t chunk_size = frame_size - offset;
+            if (chunk_size > RTP_MTU_PAYLOAD) {
+                chunk_size = RTP_MTU_PAYLOAD;
+            }
+            
+            // Build fragment: header + data
+            rtp_frag_encode(frag_buffer, i, total_frags, frame_size);
+            memcpy(frag_buffer + RTP_FRAG_HEADER_SIZE, frame_data + offset, chunk_size);
+            
+            // Wrap in RTP packet
+            size_t packet_size = rtp_packet_encode(
+                rtp_buffer, RTP_PACKET_BUFFER_SIZE,
+                2, 0, 0, 0,
+                seqnum,  // Same seqnum for all fragments of this frame
+                (i == total_frags - 1) ? 1 : 0,  // marker=1 on last fragment
+                MJPEG_TYPE, 0,
+                frag_buffer, RTP_FRAG_HEADER_SIZE + chunk_size
+            );
+            
+            if (packet_size > 0) {
+                ssize_t sent = sendto(socket_fd, rtp_buffer, packet_size, 0,
+                    (struct sockaddr *)addr, sizeof(*addr));
+                if (sent < 0) {
+                    logger_log("error sending fragment %d/%d: %s", i + 1, total_frags, strerror(errno));
+                    return -1;
+                }
+            }
+            
+            offset += chunk_size;
+            
+            // Small delay between fragments to avoid overwhelming the network
+            usleep(100);  // 0.1ms
+        }
+    }
+    
+    return 0;
+}
 
 static void *send_rtp_thread(void *arg) {
     session_t *session = (session_t *)arg;
 
     uint8_t frame_buffer[FRAME_BUFFER_SIZE];
-    uint8_t rtp_buffer[RTP_PACKET_BUFFER_SIZE];
 
     // Set up the client's UDP address struct for sendto
     struct sockaddr_in rtp_addr;
@@ -64,25 +139,14 @@ static void *send_rtp_thread(void *arg) {
             break;
         }
 
-        // Encode
-        size_t packet_size = rtp_packet_encode(
-            rtp_buffer, RTP_PACKET_BUFFER_SIZE,
-            2, 0, 0, 0, // version, padding, extension, cc
-            (&session->video_stream)->frame_num,
-            0, MJPEG_TYPE, 0, // marker, pt, ssrc
-            frame_buffer, frame_size
+        // Send frame (with fragmentation if needed)
+        send_frame_fragmented(
+            session->rtp_socket_fd,
+            &rtp_addr,
+            frame_buffer,
+            frame_size,
+            session->video_stream.frame_num
         );
-
-        // Send
-        if (packet_size > 0) {
-            ssize_t sent = sendto(
-                session->rtp_socket_fd, rtp_buffer, packet_size, 0,
-                (struct sockaddr *)&rtp_addr, sizeof(rtp_addr)
-            );
-            if (sent < 0) {
-                logger_log("error sending rtp packet: %s", strerror(errno));
-            }
-        }
 
         // Wait 50ms for 20 FPS video
         gettimeofday(&now, NULL);
@@ -213,6 +277,12 @@ static void handle_play(session_t *session, rtsp_request_info_t *info) {
         logger_log("error creating rtp socket: %s", strerror(errno));
         send_rtsp_reply(session, STATUS_SRV_ERR_500, info->cseq);
         return;
+    }
+
+    // Increase socket send buffer size for large JPEG frames
+    int sndbuf_size = 256 * 1024; // 256KB
+    if (setsockopt(session->rtp_socket_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf_size, sizeof(sndbuf_size)) < 0) {
+        logger_log("warning: could not set socket send buffer size: %s", strerror(errno));
     }
 
     session->state = STATE_PLAYING;
