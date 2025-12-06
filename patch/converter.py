@@ -118,12 +118,22 @@ def convert_to_length_prefixed_mjpeg(input_file, output_file):
 
     # Verify output format
     print(f"\nVerification:")
-    first_frame_size = len(frames[0])
-    header_len = HEADER_SIZE if first_frame_size <= MAX_FRAME_SIZE else len(str(first_frame_size))
-    print(f"  First header: '{result[:header_len].decode('ascii')}'")
-    print(f"  Bytes after header (should be FF D8): {result[header_len]:02X} {result[header_len+1]:02X}")
-    if first_frame_size <= MAX_FRAME_SIZE:
+    # Parse the header from the generated result buffer directly
+    header_len_detected = 0
+    for b in result[:20]: # Check first few bytes
+        if chr(b).isdigit():
+            header_len_detected += 1
+        else:
+            break
+            
+    header_str = result[:header_len_detected].decode('ascii')
+    print(f"  First header: '{header_str}' (Length: {header_len_detected})")
+    print(f"  Bytes after header: {result[header_len_detected]:02X} {result[header_len_detected+1]:02X}")
+    
+    if header_len_detected == HEADER_SIZE:
         print(f"  Compliant with 5-byte header format")
+    else:
+        print(f"  WARNING: Header is {header_len_detected} bytes (expected {HEADER_SIZE})")
 
 def verify_mjpeg_format(filename):
     """Verify and display the format of an MJPEG file."""

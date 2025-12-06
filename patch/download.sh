@@ -17,6 +17,7 @@ FILES=(
     "sample_640x360.mjpeg"
     "sample_960x540.mjpeg"
     "sample_1280x720.mjpeg"
+    "sample_1920x1080.mjpeg"
 )
 
 for file in "${FILES[@]}"; do
