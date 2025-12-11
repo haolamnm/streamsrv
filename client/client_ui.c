@@ -128,6 +128,7 @@ void client_ui_init(
     ui->screen_height = INITIAL_VIDEO_HEIGHT + TIMER_HEIGHT + STATS_HEIGHT + TOOLBAR_HEIGHT;
     ui->video_size_detected = false;
 
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(ui->screen_width, ui->screen_height, "RTSP Client");
     SetTargetFPS(30);
 
@@ -190,6 +191,14 @@ static void client_ui_update_video(client_ui_t *ui) {
 static void client_ui_update_logic(client_ui_t *ui) {
     if (WindowShouldClose()) {
         ui->close_signal = true;
+    }
+
+    // Handle window resizing
+    if (IsWindowResized()) {
+        ui->screen_width = GetScreenWidth();
+        ui->screen_height = GetScreenHeight();
+        ui->video_height = ui->screen_height - (int)TIMER_HEIGHT - (int)STATS_HEIGHT - (int)TOOLBAR_HEIGHT;
+        client_ui_update_layout(ui);
     }
 
     // Safely get the current state
@@ -270,11 +279,9 @@ static void client_ui_draw(client_ui_t *ui) {
     BeginDrawing();
     ClearBackground(UI_BG_COLOR);
 
-    // Draw video
-    DrawTextureRec(ui->video_texture.texture,
-        (Rectangle){ 0, 0, ui->video_texture.texture.width, -ui->video_texture.texture.height },
-        (Vector2){ 0, 0 }, WHITE
-    );
+    // Draw video (scaled to fit video_rect when window is resized)
+    Rectangle source_rect = { 0, 0, ui->video_texture.texture.width, -ui->video_texture.texture.height };
+    DrawTexturePro(ui->video_texture.texture, source_rect, ui->video_rect, (Vector2){ 0, 0 }, 0.0f, WHITE);
 
     // Get current state for button rendering
     pthread_mutex_lock(&ui->client->state_mutex);
