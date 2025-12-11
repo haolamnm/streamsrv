@@ -75,74 +75,46 @@ static void DrawConnectIcon(float cx, float cy, float size, Color color) {
 
 // Draw seek back icon (rotate left/rewind)
 static void DrawSeekBackIcon(float cx, float cy, float size, Color color) {
-    float radius = size * 0.3f;
-    float pi = 3.14159f;
+    // Bán kính từ tâm đến đỉnh
+    float r = size * 0.4f; 
     
-    // Draw 3/4 arc going counter-clockwise (from bottom-left to top-left)
-    int steps = 40;
-    for (int i = 0; i < steps; i++) {
-        float angle1 = (30 + (float)i * 300 / steps) * pi / 180.0f;
-        float angle2 = (30 + (float)(i + 1) * 300 / steps) * pi / 180.0f;
-        
-        float x1 = cx + radius * cosf(angle1);
-        float y1 = cy + radius * sinf(angle1);
-        float x2 = cx + radius * cosf(angle2);
-        float y2 = cy + radius * sinf(angle2);
-        
-        DrawLine(x1, y1, x2, y2, color);
-    }
+    // Tính toán 3 đỉnh của tam giác (Hướng sang trái - 180 độ)
     
-    // Draw arrow head at start (top-left)
-    float start_angle = 30 * pi / 180.0f;
-    float arrow_x = cx + radius * cosf(start_angle);
-    float arrow_y = cy + radius * sinf(start_angle);
+    // Đỉnh 1: Mũi nhọn (bên trái)
+    Vector2 v1 = { cx - r, cy };
     
-    float arrow_angle = start_angle + pi / 4;  // 45 degrees back
-    float arrow_len = size * 0.12f;
+    // Đỉnh 2: Góc dưới bên phải
+    // x lệch về phải một nửa bán kính, y đi xuống
+    Vector2 v2 = { cx + r * 0.5f, cy + r * 0.866f };
     
-    DrawTriangle(
-        (Vector2){ arrow_x, arrow_y },
-        (Vector2){ arrow_x + arrow_len * cosf(arrow_angle + pi/6), arrow_y + arrow_len * sinf(arrow_angle + pi/6) },
-        (Vector2){ arrow_x + arrow_len * cosf(arrow_angle - pi/6), arrow_y + arrow_len * sinf(arrow_angle - pi/6) },
-        color
-    );
+    // Đỉnh 3: Góc trên bên phải
+    // x lệch về phải một nửa bán kính, y đi lên
+    Vector2 v3 = { cx + r * 0.5f, cy - r * 0.866f };
+    
+    // Vẽ tam giác (thứ tự ngược chiều kim đồng hồ để hiển thị đúng trong Raylib)
+    DrawTriangle(v1, v2, v3, color);
 }
 
 // Draw seek forward icon (rotate right/fast forward)
 static void DrawSeekForwardIcon(float cx, float cy, float size, Color color) {
-    float radius = size * 0.3f;
-    float pi = 3.14159f;
+    // Bán kính từ tâm đến các đỉnh (khoảng 40% kích thước ô chứa)
+    float r = size * 0.4f; 
     
-    // Draw 3/4 arc going clockwise (from bottom-right to top-right)
-    int steps = 40;
-    for (int i = 0; i < steps; i++) {
-        float angle1 = (210 - (float)i * 300 / steps) * pi / 180.0f;
-        float angle2 = (210 - (float)(i + 1) * 300 / steps) * pi / 180.0f;
-        
-        float x1 = cx + radius * cosf(angle1);
-        float y1 = cy + radius * sinf(angle1);
-        float x2 = cx + radius * cosf(angle2);
-        float y2 = cy + radius * sinf(angle2);
-        
-        DrawLine(x1, y1, x2, y2, color);
-    }
+    // Tính toán 3 đỉnh của tam giác (Hướng sang phải 0 độ)
     
-    // Draw arrow head at start (top-right)
-    float start_angle = 210 * pi / 180.0f;
-    float arrow_x = cx + radius * cosf(start_angle);
-    float arrow_y = cy + radius * sinf(start_angle);
+    // Đỉnh 1: Mũi nhọn (bên phải)
+    Vector2 v1 = { cx + r, cy };
     
-    float arrow_angle = start_angle - pi / 4;  // 45 degrees forward
-    float arrow_len = size * 0.12f;
+    // Đỉnh 2: Góc dưới bên trái
+    Vector2 v2 = { cx - r * 0.5f, cy + r * 0.866f };
     
-    DrawTriangle(
-        (Vector2){ arrow_x, arrow_y },
-        (Vector2){ arrow_x + arrow_len * cosf(arrow_angle + pi/6), arrow_y + arrow_len * sinf(arrow_angle + pi/6) },
-        (Vector2){ arrow_x + arrow_len * cosf(arrow_angle - pi/6), arrow_y + arrow_len * sinf(arrow_angle - pi/6) },
-        color
-    );
+    // Đỉnh 3: Góc trên bên trái
+    Vector2 v3 = { cx - r * 0.5f, cy - r * 0.866f };
+    
+    // SỬA LỖI TẠI ĐÂY:
+    // Đổi thứ tự v2 và v3 cho nhau: v1 -> v3 -> v2 (Ngược chiều kim đồng hồ)
+    DrawTriangle(v1, v3, v2, color);
 }
-
 // Helper function to update UI layout based on current dimensions
 static void client_ui_update_layout(client_ui_t *ui) {
     ui->video_rect = (Rectangle){ 0, 0, ui->screen_width, ui->video_height };
