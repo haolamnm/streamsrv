@@ -73,49 +73,49 @@ static void DrawConnectIcon(float cx, float cy, float size, Color color) {
     DrawRing((Vector2){ cx, cy }, size * 0.45f, size * 0.55f, 0, 360, 36, color);
 }
 
-// Draw seek back icon (rotate left/rewind)
-static void DrawSeekBackIcon(float cx, float cy, float size, Color color) {
-    // Bán kính từ tâm đến đỉnh
-    float r = size * 0.4f; 
-    
-    // Tính toán 3 đỉnh của tam giác (Hướng sang trái - 180 độ)
-    
-    // Đỉnh 1: Mũi nhọn (bên trái)
-    Vector2 v1 = { cx - r, cy };
-    
-    // Đỉnh 2: Góc dưới bên phải
-    // x lệch về phải một nửa bán kính, y đi xuống
-    Vector2 v2 = { cx + r * 0.5f, cy + r * 0.866f };
-    
-    // Đỉnh 3: Góc trên bên phải
-    // x lệch về phải một nửa bán kính, y đi lên
-    Vector2 v3 = { cx + r * 0.5f, cy - r * 0.866f };
-    
-    // Vẽ tam giác (thứ tự ngược chiều kim đồng hồ để hiển thị đúng trong Raylib)
+// Draw left-pointing triangle
+static void DrawLeftTriangle(float tipX, float tipY, float w, float h, Color color) {
+    Vector2 v1 = { tipX, tipY };           
+    Vector2 v2 = { tipX + w, tipY - h/2 }; 
+    Vector2 v3 = { tipX + w, tipY + h/2 }; 
+    DrawTriangle(v1, v3, v2, color);
+}
+
+// Draw right-pointing triangle
+static void DrawRightTriangle(float tipX, float tipY, float w, float h, Color color) {
+    Vector2 v1 = { tipX, tipY };           
+    Vector2 v2 = { tipX - w, tipY - h/2 }; 
+    Vector2 v3 = { tipX - w, tipY + h/2 }; 
     DrawTriangle(v1, v2, v3, color);
 }
 
-// Draw seek forward icon (rotate right/fast forward)
-static void DrawSeekForwardIcon(float cx, float cy, float size, Color color) {
-    // Bán kính từ tâm đến các đỉnh (khoảng 40% kích thước ô chứa)
-    float r = size * 0.4f; 
+// Draw seek back icon (two left-pointing triangles)
+static void DrawSeekBackIcon(float cx, float cy, float size, Color color) {
+    float triWidth = size * 0.25f;  
+    float triHeight = size * 0.45f; 
+    float spacing = size * 0.05f;   
     
-    // Tính toán 3 đỉnh của tam giác (Hướng sang phải 0 độ)
-    
-    // Đỉnh 1: Mũi nhọn (bên phải)
-    Vector2 v1 = { cx + r, cy };
-    
-    // Đỉnh 2: Góc dưới bên trái
-    Vector2 v2 = { cx - r * 0.5f, cy + r * 0.866f };
-    
-    // Đỉnh 3: Góc trên bên trái
-    Vector2 v3 = { cx - r * 0.5f, cy - r * 0.866f };
-    
-    // SỬA LỖI TẠI ĐÂY:
-    // Đổi thứ tự v2 và v3 cho nhau: v1 -> v3 -> v2 (Ngược chiều kim đồng hồ)
-    DrawTriangle(v1, v3, v2, color);
+    float totalWidth = (triWidth * 2) + spacing;
+    float startX = cx + (totalWidth / 2.0f); 
+
+    DrawLeftTriangle(startX - triWidth, cy, triWidth, triHeight, color);
+    DrawLeftTriangle(startX - (triWidth * 2) - spacing, cy, triWidth, triHeight, color);
 }
-// Helper function to update UI layout based on current dimensions
+
+// Draw seek forward icon (two right-pointing triangles)
+static void DrawSeekForwardIcon(float cx, float cy, float size, Color color) {
+    float triWidth = size * 0.25f;
+    float triHeight = size * 0.45f;
+    float spacing = size * 0.05f;
+
+    float totalWidth = (triWidth * 2) + spacing;
+    float startX = cx - (totalWidth / 2.0f); 
+
+    DrawRightTriangle(startX + triWidth, cy, triWidth, triHeight, color);
+    DrawRightTriangle(startX + (triWidth * 2) + spacing, cy, triWidth, triHeight, color);
+}
+
+// Update UI layout based on current screen size and video size
 static void client_ui_update_layout(client_ui_t *ui) {
     ui->video_rect = (Rectangle){ 0, 0, ui->screen_width, ui->video_height };
     ui->timer_rect = (Rectangle){ 0, ui->video_height, ui->screen_width, TIMER_HEIGHT };
