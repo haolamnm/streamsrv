@@ -38,6 +38,13 @@ static void cache_add_frame(rtp_client_t *rtp, const uint8_t *data, size_t size,
 
     cached_frame_t *frame = &rtp->cache.frames[rtp->cache.write_idx];
 
+    // Safety check: frame->data should always be allocated
+    if (frame->data == NULL) {
+        logger_log("warning: frame data is NULL, skipping frame add");
+        pthread_mutex_unlock(&rtp->cache.mutex);
+        return;
+    }
+
     if (size <= FRAME_BUFFER_SIZE) {
         memcpy(frame->data, data, size);
         frame->size = size;
@@ -327,6 +334,32 @@ int rtp_client_is_buffering(rtp_client_t *rtp) {
     int buffering = rtp->cache.buffering;
     pthread_mutex_unlock(&rtp->cache.mutex);
     return buffering;
+}
+
+void rtp_client_clear_cache(rtp_client_t *rtp) {
+    pthread_mutex_lock(&rtp->cache.mutex);
+    rtp->cache.write_idx = 0;
+    rtp->cache.read_idx = 0;
+    rtp->cache.count = 0;
+    rtp->cache.buffering = 1;  // Start buffering again after seek
+    pthread_mutex_unlock(&rtp->cache.mutex);
+    
+    // Also reset fragment reassembly buffer to discard any pending fragments
+    rtp->frag_buf.in_progress = 0;
+    rtp->frag_buf.received_size = 0;
+    rtp->frag_buf.frags_received = 0;
+    rtp->frag_buf.frags_bitmap = 0;
+    
+    // Reset RTP seqnum tracking to allow jump from seek
+    pthread_mutex_lock(&rtp->stats_mutex);
+    rtp->stats.first_packet = 0;  // Reset so next packet is accepted as first
+    rtp->stats.last_seqnum = 0;
+    rtp->stats.frames_received = 0;  // Reset frame counter after seek
+    rtp->stats.packets_received = 0;  // Reset packet counter after seek
+    rtp->stats.packets_lost = 0;  // Reset packet loss counter after seek
+    pthread_mutex_unlock(&rtp->stats_mutex);
+    
+    logger_log("rtp cache cleared for seek (cache, fragments, and seqnum tracking reset)");
 }
 
 void rtp_client_stop_listener(rtp_client_t *rtp) {

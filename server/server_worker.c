@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "../common/logger.h"
 #include "../common/rtp_packet.h"
 #include "../common/rtp_fragment.h"
@@ -14,9 +16,9 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/types.h>
 
 #define RECV_BUFFER_SIZE 2048
 #define SEND_BUFFER_SIZE 1024
@@ -140,13 +142,23 @@ static void *send_rtp_thread(void *arg) {
         }
 
         // Send frame (with fragmentation if needed)
+        // Log the frame index being sent for debugging seek behavior
+        logger_log("sending frame %d (size %zd bytes) with rtp_seqnum %u",
+            session->video_stream.frame_num,
+            frame_size,
+            (unsigned)session->rtp_seqnum
+        );
+
         send_frame_fragmented(
             session->rtp_socket_fd,
             &rtp_addr,
             frame_buffer,
             frame_size,
-            session->video_stream.frame_num
+            session->rtp_seqnum
         );
+        
+        // Increment RTP sequence number for next frame
+        session->rtp_seqnum++;
 
         // Wait ~33ms for 30 FPS video (matches client consume rate)
         gettimeofday(&now, NULL);
@@ -257,19 +269,63 @@ static void handle_setup(session_t *session, rtsp_request_info_t *info) {
     pthread_cond_init(&session->event_cond, NULL);
     session->stop_rtp_thread = 1;
     session->rtp_socket_fd = -1;
+    session->rtp_seqnum = 0;  // Initialize RTP sequence number
 
     send_rtsp_reply(session, STATUS_OK_200, info->cseq);
 }
 
 static void handle_play(session_t *session, rtsp_request_info_t *info) {
-    handle_setup(session, info);
+    // Only do SETUP on first PLAY
+    if (session->state == STATE_INIT) {
+        handle_setup(session, info);
+    }
 
-    if (session->state != STATE_READY) {
+    if (session->state != STATE_READY && session->state != STATE_PLAYING) {
         logger_log("received play in non-ready state");
         return;
     }
 
     logger_log("processing play");
+
+    // If a seek is requested while currently playing, stop the RTP thread
+    // so we can reposition the file and restart sending from the seek point.
+    if ((info->has_seek || info->has_frame_seek) && session->state == STATE_PLAYING) {
+        logger_log("play request contains seek while playing - stopping current RTP thread to reposition");
+        stop_rtp_streaming(session);
+        session->state = STATE_READY;
+    }
+
+    // Handle seek if Range header is present (time-based)
+    if (info->has_seek) {
+        logger_log("seek requested to %.2f seconds", info->seek_position);
+        if (video_stream_seek_time(&session->video_stream, info->seek_position) < 0) {
+            logger_log("seek failed");
+            send_rtsp_reply(session, STATUS_SRV_ERR_500, info->cseq);
+            return;
+        }
+    }
+    
+    // Handle frame-based seek if X-Frame header is present
+    if (info->has_frame_seek) {
+        logger_log("frame seek requested to frame %d", info->frame_number);
+        if (video_stream_seek_frame(&session->video_stream, info->frame_number) < 0) {
+            logger_log("frame seek failed");
+            send_rtsp_reply(session, STATUS_SRV_ERR_500, info->cseq);
+            return;
+        }
+    }
+
+    // If already playing and no seek was requested, acknowledge and continue
+    if (session->state == STATE_PLAYING) {
+        logger_log("already playing, restarting stream");
+        // Signal RTP thread to restart
+        pthread_mutex_lock(&session->event_mutex);
+        session->stop_rtp_thread = 0;
+        pthread_cond_signal(&session->event_cond);
+        pthread_mutex_unlock(&session->event_mutex);
+        send_rtsp_reply(session, STATUS_OK_200, info->cseq);
+        return;
+    }
 
     // Create the UDP socket
     session->rtp_socket_fd = socket(AF_INET, SOCK_DGRAM, 0);

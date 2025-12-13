@@ -218,6 +218,45 @@ int rtsp_client_send_teardown(rtsp_client_t *client) {
     return send_rtsp_request(client, send_buffer);
 }
 
+int rtsp_client_send_seek(rtsp_client_t *client, double position) {
+    char send_buffer[SEND_BUFFER_SIZE];
+    client->rtsp_seq++;
+
+    // Format position as mm:ss.ff (minutes:seconds.centiseconds)
+    int total_seconds = (int)position;
+    int centiseconds = (int)((position - total_seconds) * 100);
+    int minutes = total_seconds / 60;
+    int seconds = total_seconds % 60;
+
+    sprintf(send_buffer,
+            "PLAY %s %s\r\nCSeq: %d\r\nSession: %d\r\nRange: npt=%02d:%02d.%02d-\r\n\r\n",
+            client->video_file,
+            RTSP_VERSION,
+            client->rtsp_seq,
+            client->session_id,
+            minutes,
+            seconds,
+            centiseconds);
+
+    return send_rtsp_request(client, send_buffer);
+}
+
+int rtsp_client_send_seek_frame(rtsp_client_t *client, int frame_number) {
+    char send_buffer[SEND_BUFFER_SIZE];
+    client->rtsp_seq++;
+
+    // Send PLAY with custom header X-Frame: frame_number
+    sprintf(send_buffer,
+            "PLAY %s %s\r\nCSeq: %d\r\nSession: %d\r\nX-Frame: %d\r\n\r\n",
+            client->video_file,
+            RTSP_VERSION,
+            client->rtsp_seq,
+            client->session_id,
+            frame_number);
+
+    return send_rtsp_request(client, send_buffer);
+}
+
 void rtsp_client_disconnect(rtsp_client_t *client) {
     logger_log("disconnecting...");
 

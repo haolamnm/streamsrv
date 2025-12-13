@@ -53,6 +53,8 @@ typedef struct {
     Rectangle connect_btn_rect;
     Rectangle playpause_btn_rect;
     Rectangle stop_btn_rect;
+    Rectangle seek_back_btn_rect;
+    Rectangle seek_forward_btn_rect;
 
     // Video rendering
     RenderTexture2D video_texture;    // main video display
@@ -63,9 +65,18 @@ typedef struct {
     double play_start_time;
     double elapsed_time;
     bool timer_running;
+    bool video_ended;              // Flag when video reaches EOF
+    int frame_count;               // Number of frames received from server
+    int frame_count_at_seek;       // Frame count when last seek was done
+    int current_frame_number;      // Absolute frame number (0-500) being displayed
 
     // Frame rate control - throttle to match server's 20 FPS
     double last_frame_time;
+    int consecutive_empty_frames;   // Counter for EOF detection
+
+    // Auto-play after seek
+    double seek_time_pending;      // Time when seek happened (for auto-play delay)
+    bool auto_play_after_seek;     // Flag to trigger auto-play after delay
 
     // Statistics display
     rtp_stats_t last_stats;

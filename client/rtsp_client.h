@@ -36,6 +36,8 @@ int rtsp_client_send_setup(rtsp_client_t *client);
 int rtsp_client_send_play(rtsp_client_t *client);
 int rtsp_client_send_pause(rtsp_client_t *client);
 int rtsp_client_send_teardown(rtsp_client_t *client);
+int rtsp_client_send_seek(rtsp_client_t *client, double position);
+int rtsp_client_send_seek_frame(rtsp_client_t *client, int frame_number);
 
 void rtsp_client_disconnect(rtsp_client_t *client);
 
